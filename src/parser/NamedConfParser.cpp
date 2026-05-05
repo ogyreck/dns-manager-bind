@@ -7,9 +7,9 @@
 #include <QTextStream>
 
 /**
- * @brief Главная точка входа для парсинга конфигурации
+ * точка входа для парсинга конфигурации
  * 
- * Очищает состояние парсера и запускает рекурсивный парсинг
+ *  очищает состояние парсера и запускает рекурсивный парсинг
  */
 QList<Zone> NamedConfParser::parse(const QString &filePath) {
     m_parsedFiles.clear();      // Очищаем кэш обработанных файлов
@@ -17,19 +17,10 @@ QList<Zone> NamedConfParser::parse(const QString &filePath) {
     return doParse(filePath);   // Начинаем рекурсивный разбор
 }
 
-/**
- * @brief Основной рекурсивный метод парсинга файла конфигурации
- * 
- * Алгоритм:
- * 1. Проверка существования файла и циклических включений
- * 2. Удаление комментариев из содержимого
- * 3. Обработка include-директив (рекурсивный вызов)
- * 4. Извлечение информации о зонах с помощью regex
- */
 QList<Zone> NamedConfParser::doParse(const QString &filePath) {
     QList<Zone> zones;
 
-    // === ЭТАП 1: Проверка существования файла ===
+    // Проверка существования файла 
     const QString canonical = QFileInfo(filePath).canonicalFilePath();
     if (canonical.isEmpty()) {
         m_lastError = "Файл не найден: " + filePath;
@@ -37,7 +28,7 @@ QList<Zone> NamedConfParser::doParse(const QString &filePath) {
         return zones;
     }
 
-    // === ЭТАП 2: Защита от циклических включений ===
+    
     // Если файл уже был обработан, пропускаем его
     if (m_parsedFiles.contains(canonical)) {
         qWarning() << "[NamedConfParser] Циклический include:" << filePath;
@@ -47,7 +38,7 @@ QList<Zone> NamedConfParser::doParse(const QString &filePath) {
 
     qDebug() << "[NamedConfParser] Парсим файл:" << filePath;
 
-    // === ЭТАП 3: Чтение содержимого файла ===
+    // чтение содержимого файла 
     QFile file(canonical);
     if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         m_lastError = "Не удалось открыть файл: " + filePath;
@@ -58,18 +49,18 @@ QList<Zone> NamedConfParser::doParse(const QString &filePath) {
     QString content = QTextStream(&file).readAll();
     file.close();
 
-    // === ЭТАП 4: Удаление комментариев ===
+  
     // Удаляем блочные комментарии /* ... */
     content.remove(QRegularExpression("/\\*.*?\\*/", QRegularExpression::DotMatchesEverythingOption));
     // Удаляем строчные комментарии //...
     content.remove(QRegularExpression("//[^\n]*"));
-    // Удаляем комментарии в стиле shell #...
+    // удаляем комментарии в стиле #...
     content.remove(QRegularExpression("#[^\n]*"));
 
     // Получаем директорию файла для разрешения относительных путей
     const QString currentDir = QFileInfo(canonical).absolutePath();
 
-    // === ЭТАП 5: Обработка include-директив ===
+
     // Ищем все строки вида: include "path/to/file.conf";
     QRegularExpression includeRe("include\\s+\"([^\"]+)\"\\s*;");
     auto incIt = includeRe.globalMatch(content);
@@ -87,11 +78,7 @@ QList<Zone> NamedConfParser::doParse(const QString &filePath) {
         zones.append(doParse(includePath));
     }
 
-    // === ЭТАП 6: Извлечение информации о зонах ===
-    // Регулярное выражение для поиска определений зон
-    // Поддерживает одноуровневое вложение {} для зон (covers most common cases):
-    // zone "example.com" IN { ... }
-    // zone "example.com" { ... }
+    // Поддерживает одноуровневое вложение {} для зон
     QRegularExpression zoneRe(
         "zone\\s+\"([^\"]+)\"\\s*(?:IN\\s*)?\\{([^{}]*(?:\\{[^{}]*\\}[^{}]*)*)\\}",
         QRegularExpression::CaseInsensitiveOption);
@@ -100,14 +87,14 @@ QList<Zone> NamedConfParser::doParse(const QString &filePath) {
     while (it.hasNext()) {
         auto match = it.next();
         Zone zone;
-        zone.name = match.captured(1);                // Имя зоны (например, "example.com")
-        const QString body = match.captured(2);       // Содержимое блока зоны
+        zone.name = match.captured(1);
+        const QString body = match.captured(2);
 
-        // === Определение типа зоны ===
+        // Определение типа зоны
         QRegularExpression typeRe("type\\s+(\\w+)\\s*;");
         auto typeMatch = typeRe.match(body);
         if (!typeMatch.hasMatch())
-            continue;  // Пропускаем, если тип не найден
+            continue;
 
         const QString t = typeMatch.captured(1).toLower();
         if (t == "master")
@@ -115,29 +102,27 @@ QList<Zone> NamedConfParser::doParse(const QString &filePath) {
         else if (t == "slave")
             zone.type = ZoneType::Slave;
         else
-            continue;  // Неподдерживаемый тип, пропускаем
+            continue;
 
-        // === Поиск пути к файлу зоны ===
-        // Ищем строку: file "path/to/zone/db.example.com";
+       
+        // ищем строку: file "path/to/zone/db.example.com";
         QRegularExpression fileRe("file\\s+\"([^\"]+)\"\\s*;");
         auto fileMatch = fileRe.match(body);
         if (fileMatch.hasMatch()) {
             QString zonePath = fileMatch.captured(1);
-            // Разрешаем относительные пути
             if (!QFileInfo(zonePath).isAbsolute())
                 zonePath = currentDir + "/" + zonePath;
             zone.filePath = zonePath;
         }
 
-        // === Поиск Master-сервера для Slave-зон ===
-        // Ищем строку вида: masters { 192.168.1.1; };
+        // Для slave-зон ищем строку: masters {
         QRegularExpression mastersRe("masters\\s*\\{\\s*([\\d.]+)");
         auto mastersMatch = mastersRe.match(body);
         if (mastersMatch.hasMatch())
             zone.masterIp = mastersMatch.captured(1);
 
-        // === Определение типа зоны (Forward/Reverse) ===
-        // Reverse-зоны содержат "in-addr.arpa" или "ip6.arpa" в имени
+        // определение типа зоны (Forward/Reverse) 
+
         if (zone.name.contains("in-addr.arpa", Qt::CaseInsensitive) ||
             zone.name.contains("ip6.arpa", Qt::CaseInsensitive))
             zone.view = ZoneView::Reverse;
