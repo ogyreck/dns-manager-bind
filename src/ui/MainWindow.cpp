@@ -1,8 +1,24 @@
 #include "ui/MainWindow.h"
 #include "ui_mainwindow.h"
 #include "parser/NamedConfParser.h"
+#include "parser/ZoneFileParser.h"
 
+#include <QDebug>
 #include <QMessageBox>
+
+static QString recordTypeToString(RecordType t) {
+    switch (t) {
+        case RecordType::A:     return "A";
+        case RecordType::AAAA:  return "AAAA";
+        case RecordType::NS:    return "NS";
+        case RecordType::MX:    return "MX";
+        case RecordType::CNAME: return "CNAME";
+        case RecordType::PTR:   return "PTR";
+        case RecordType::SOA:   return "SOA";
+        case RecordType::TXT:   return "TXT";
+    }
+    return "?";
+}
 
 
 
@@ -188,22 +204,39 @@ void MainWindow::onTreeItemSelected(QTreeWidgetItem *item, int /*column*/) {
 
         tableWidget->setHorizontalHeaderLabels({"Имя", "Тип", "TTL", "Данные"});
 
-        // Тестовые записи (потом заменишь на данные из ZoneFileParser)
-        auto addRow = [&](const QString &name, const QString &type,
-                          const QString &ttl, const QString &data) {
+        QString filePath = item->data(0, Qt::UserRole).toString();
+
+        if (filePath.isEmpty()) {
             int row = tableWidget->rowCount();
             tableWidget->insertRow(row);
-            tableWidget->setItem(row, 0, new QTableWidgetItem(name));
-            tableWidget->setItem(row, 1, new QTableWidgetItem(type));
-            tableWidget->setItem(row, 2, new QTableWidgetItem(ttl));
-            tableWidget->setItem(row, 3, new QTableWidgetItem(data));
-        };
+            tableWidget->setItem(row, 0, new QTableWidgetItem("(путь к файлу зоны не задан)"));
+            return;
+        }
 
-        addRow("@",    "SOA", "3600", "ns1." + item->text(0));
-        addRow("@",    "NS",  "3600", "ns1." + item->text(0));
-        addRow("ns1",  "A",   "300",  "192.168.1.1");
-        addRow("www",  "A",   "300",  "192.168.1.10");
-        addRow("mail", "MX",  "300",  "10 mail." + item->text(0));
+        qDebug() << "ZoneFileParser: загружаем" << filePath;
+        ZoneFileParser parser;
+        const QList<ResourceRecord> records = parser.parse(filePath);
+
+        if (!parser.lastError().isEmpty()) {
+            qWarning() << "ZoneFileParser ошибка:" << parser.lastError();
+            int row = tableWidget->rowCount();
+            tableWidget->insertRow(row);
+            tableWidget->setItem(row, 0, new QTableWidgetItem("Ошибка: " + parser.lastError()));
+            return;
+        }
+
+        for (const ResourceRecord &rr : records) {
+            QString data = rr.data;
+            if (rr.type == RecordType::MX && rr.priority > 0)
+                data = QString::number(rr.priority) + " " + rr.data;
+
+            int row = tableWidget->rowCount();
+            tableWidget->insertRow(row);
+            tableWidget->setItem(row, 0, new QTableWidgetItem(rr.name));
+            tableWidget->setItem(row, 1, new QTableWidgetItem(recordTypeToString(rr.type)));
+            tableWidget->setItem(row, 2, new QTableWidgetItem(rr.ttl ? QString::number(rr.ttl) : ""));
+            tableWidget->setItem(row, 3, new QTableWidgetItem(data));
+        }
     }
 }
 
