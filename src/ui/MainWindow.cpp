@@ -1,6 +1,6 @@
-#include "mainwindow.h"
+#include "ui/MainWindow.h"
 #include "ui_mainwindow.h"
-#include "namedconfparser.h"
+#include "parser/NamedConfParser.h"
 
 #include <QMessageBox>
 

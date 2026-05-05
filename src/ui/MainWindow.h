@@ -1,6 +1,4 @@
-#ifndef MAINWINDOW_H
-#define MAINWINDOW_H
-
+#pragma once
 #include <QMainWindow>
 #include <QToolBar>
 #include <QAction>
@@ -8,8 +6,6 @@
 #include <QTreeWidget>
 #include <QTableWidget>
 #include <QLabel>
-
-
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -67,4 +63,3 @@ private:
     QAction *actionReset;
 
 };
-#endif // MAINWINDOW_H
