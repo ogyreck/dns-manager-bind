@@ -1,5 +1,6 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
+#include "namedconfparser.h"
 
 #include <QMessageBox>
 
@@ -115,17 +116,34 @@ void MainWindow::populateTree() {
     // Раскрываем корень
     treeWidget->expandAll();
 
-    // --- Тестовые зоны (потом заменишь на данные из парсера) ---
-    QTreeWidgetItem *zone1 = new QTreeWidgetItem(itemForwardZones);
-    zone1->setText(0, "example.com");
+    NamedConfParser parser;
 
-    QTreeWidgetItem *zone2 = new QTreeWidgetItem(itemForwardZones);
-    zone2->setText(0, "domain.local");
+    QList<Zone> zones = parser.parse("/etc/bind/named.conf");
 
-    QTreeWidgetItem *zone3 = new QTreeWidgetItem(itemReverseZones);
-    zone3->setText(0, "1.168.192.in-addr.arpa");
+    if (!parser.lastError().isEmpty()) {
+           statusBar()->showMessage("Ошибка загрузки: " + parser.lastError());
+           return;
+    }
 
-    treeWidget->expandAll();
+    for (const Zone &zone : zones) {
+        QTreeWidgetItem *zoneItem = new QTreeWidgetItem();
+        zoneItem->setText(0, zone.name);
+
+            // Кладём путь к файлу зоны в UserRole —
+            // потом достанем когда пользователь кликнет на зону
+        zoneItem->setData(0, Qt::UserRole, zone.filePath);
+
+            // Определяем куда добавить - прямая или обратная зона
+         if (zone.name.contains("in-addr.arpa") ||
+              zone.name.contains("ip6.arpa")) {
+              itemReverseZones->addChild(zoneItem);
+          } else {
+              itemForwardZones->addChild(zoneItem);
+          }
+      }
+
+     treeWidget->expandAll();
+
 }
 
 
