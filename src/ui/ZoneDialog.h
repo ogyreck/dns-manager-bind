@@ -19,6 +19,7 @@ public slots:
 private slots:
     void onTypeChanged(int index);
     void onBrowse();
+    void onNameChanged(const QString &name);
 
 private:
     QLineEdit  *m_name;

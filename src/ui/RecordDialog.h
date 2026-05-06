@@ -13,6 +13,9 @@ public:
 
     ResourceRecord record() const;
 
+public slots:
+    void accept() override;
+
 private slots:
     void onTypeChanged(int index);
 

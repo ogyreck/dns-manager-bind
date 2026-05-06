@@ -6,6 +6,7 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMessageBox>
 #include <QSpinBox>
 #include <QVBoxLayout>
 #include <QWidget>
@@ -85,12 +86,31 @@ RecordDialog::RecordDialog(const ResourceRecord &rr, QWidget *parent)
 
     connect(m_type, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &RecordDialog::onTypeChanged);
-    connect(buttons, &QDialogButtonBox::accepted, this, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::accepted, this, &RecordDialog::accept);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
 
 void RecordDialog::onTypeChanged(int index) {
     m_priorityRow->setVisible(index == 3); // MX = index 3
+}
+
+void RecordDialog::accept() {
+    const QString name = m_name->text().trimmed();
+    const QString data = m_data->text().trimmed();
+    qDebug() << "[RecordDialog] accept attempt, name=" << name << "data=" << data;
+
+    if (name.isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Введите имя записи.");
+        m_name->setFocus();
+        return;
+    }
+    if (data.isEmpty()) {
+        QMessageBox::warning(this, "Ошибка", "Введите значение записи (поле «Данные»).");
+        m_data->setFocus();
+        return;
+    }
+
+    QDialog::accept();
 }
 
 ResourceRecord RecordDialog::record() const {

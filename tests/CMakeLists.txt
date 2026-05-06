@@ -43,3 +43,31 @@ target_compile_definitions(dns_parser_tests PRIVATE
 
 include(GoogleTest)
 add_test(NAME ParserTests COMMAND dns_parser_tests)
+
+# UI-тесты: ZoneDialog + RecordDialog (требуют Qt5::Widgets и QApplication)
+add_executable(dns_manager_ui_tests
+    main_ui.cpp
+    ui/test_zonedialog.cpp
+    ui/test_recorddialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/ZoneDialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/RecordDialog.cpp
+)
+
+target_include_directories(dns_manager_ui_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/src
+)
+
+target_link_libraries(dns_manager_ui_tests
+    GTest::gtest
+    Qt5::Core
+    Qt5::Widgets
+)
+
+set_target_properties(dns_manager_ui_tests PROPERTIES
+    AUTOMOC ON
+)
+
+# offscreen-платформа для CI без дисплея
+add_test(NAME UITests
+    COMMAND ${CMAKE_COMMAND} -E env QT_QPA_PLATFORM=offscreen $<TARGET_FILE:dns_manager_ui_tests>
+)
