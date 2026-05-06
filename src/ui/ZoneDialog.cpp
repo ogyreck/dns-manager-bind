@@ -11,9 +11,10 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
-ZoneDialog::ZoneDialog(const Zone &zone, QWidget *parent)
-    : QDialog(parent) {
-    qDebug() << "[ZoneDialog] открытие, zone=" << zone.name;
+ZoneDialog::ZoneDialog(const Zone &zone, const QString &workDir, QWidget *parent)
+    : QDialog(parent), m_workDir(workDir)
+{
+    qDebug() << "[ZoneDialog] открытие, zone=" << zone.name << "workDir=" << workDir;
 
     setWindowTitle(zone.name.isEmpty() ? "Создать зону" : "Свойства зоны");
     setMinimumWidth(400);
@@ -27,6 +28,10 @@ ZoneDialog::ZoneDialog(const Zone &zone, QWidget *parent)
 
     m_filePath = new QLineEdit(zone.filePath, this);
     m_browse   = new QPushButton("Обзор...", this);
+
+    // При редактировании существующей зоны путь уже задан — не перезаписываем
+    if (!zone.name.isEmpty())
+        m_filePathEdited = true;
 
     QHBoxLayout *fileLayout = new QHBoxLayout;
     fileLayout->addWidget(m_filePath);
@@ -50,10 +55,11 @@ ZoneDialog::ZoneDialog(const Zone &zone, QWidget *parent)
 
     connect(m_type, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &ZoneDialog::onTypeChanged);
-    connect(m_browse,  &QPushButton::clicked,    this, &ZoneDialog::onBrowse);
-    connect(m_name,    &QLineEdit::textChanged,  this, &ZoneDialog::onNameChanged);
-    connect(buttons,   &QDialogButtonBox::accepted, this, &ZoneDialog::accept);
-    connect(buttons,   &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(m_browse,    &QPushButton::clicked,    this, &ZoneDialog::onBrowse);
+    connect(m_name,      &QLineEdit::textChanged,  this, &ZoneDialog::onNameChanged);
+    connect(m_filePath,  &QLineEdit::textEdited,   this, &ZoneDialog::onFilePathEdited);
+    connect(buttons,     &QDialogButtonBox::accepted, this, &ZoneDialog::accept);
+    connect(buttons,     &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
 
 void ZoneDialog::onTypeChanged(int index) {
@@ -64,8 +70,14 @@ void ZoneDialog::onBrowse() {
     QString path = QFileDialog::getSaveFileName(this, "Выбор файла зоны",
                                                  m_filePath->text(),
                                                  "Файлы зон (db.*);;Все файлы (*)");
-    if (!path.isEmpty())
+    if (!path.isEmpty()) {
         m_filePath->setText(path);
+        m_filePathEdited = true;
+    }
+}
+
+void ZoneDialog::onFilePathEdited() {
+    m_filePathEdited = true;
 }
 
 void ZoneDialog::accept() {
@@ -92,11 +104,13 @@ void ZoneDialog::accept() {
 }
 
 void ZoneDialog::onNameChanged(const QString &name) {
+    // Автозаполнение только если путь пустой или совпадает с шаблоном workDir/db.*
     const QString current = m_filePath->text();
-    if (current.isEmpty() || current.startsWith("/etc/bind/db.")) {
-        const QString suggested = "/etc/bind/db." + name.toLower();
+    const QString prefix  = m_workDir + "/db.";
+    if (!m_filePathEdited && (current.isEmpty() || current.startsWith(prefix))) {
+        const QString suggested = prefix + name.toLower();
         m_filePath->setText(suggested);
-        qDebug() << "[ZoneDialog] autofill filePath=" << suggested;
+        qDebug() << "[ZoneDialog] auto filePath=" << suggested;
     }
 }
 

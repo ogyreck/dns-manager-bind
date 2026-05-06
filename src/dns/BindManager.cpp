@@ -9,6 +9,8 @@
 #include <QRegExp>
 #include <QTextStream>
 
+BindManager::BindManager(QObject *parent) : QObject(parent) {}
+
 QList<Zone> BindManager::loadZones(const QString &namedConfPath, QString *error) {
     qDebug() << "[BindManager] loadZones:" << namedConfPath;
     NamedConfParser parser;
@@ -68,6 +70,53 @@ bool BindManager::restart(QString *error) {
 bool BindManager::reload(QString *error) {
     qDebug() << "[BindManager] reload";
     return runSystemctl("reload", error);
+}
+
+// Запускает systemctl <action> <service> асинхронно; при завершении
+// перебирает сервисы named/bind9 и эмитирует commandFinished.
+void BindManager::runSystemctlAsync(const QString &action, const QString &service) {
+    auto *proc = new QProcess(this);
+    qDebug() << "[BindManager]" << action << "Async: launched systemctl" << action << service;
+    connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
+            this, [this, proc, action, service](int code, QProcess::ExitStatus) {
+                proc->deleteLater();
+                if (code == 0) {
+                    qDebug() << "[BindManager] commandFinished: action=" << action << "success=true";
+                    emit commandFinished(action, true, {});
+                    return;
+                }
+                // Первый сервис (named) не ответил — пробуем bind9
+                const QString fallback = (service == "named") ? "bind9" : QString();
+                if (!fallback.isEmpty()) {
+                    runSystemctlAsync(action, fallback);
+                } else {
+                    const QString err = proc->readAllStandardError().trimmed();
+                    qWarning() << "[BindManager] commandFinished: action=" << action
+                               << "success=false err=" << err;
+                    emit commandFinished(action, false, err);
+                }
+            });
+    proc->start("systemctl", {action, service});
+}
+
+void BindManager::startAsync() {
+    qDebug() << "[BindManager] startAsync: launched";
+    runSystemctlAsync("start", "named");
+}
+
+void BindManager::stopAsync() {
+    qDebug() << "[BindManager] stopAsync: launched";
+    runSystemctlAsync("stop", "named");
+}
+
+void BindManager::restartAsync() {
+    qDebug() << "[BindManager] restartAsync: launched";
+    runSystemctlAsync("restart", "named");
+}
+
+void BindManager::reloadAsync() {
+    qDebug() << "[BindManager] reloadAsync: launched";
+    runSystemctlAsync("reload", "named");
 }
 
 bool BindManager::isRunning() const {
@@ -173,14 +222,48 @@ static bool removeZoneFromConf(const QString &zoneName, const QString &namedConf
     return true;
 }
 
+// Формирует минимальный набор SOA + NS для новой пустой зоны
+static QList<ResourceRecord> minimalRecords(const QString &zoneName) {
+    ResourceRecord soa;
+    soa.type = RecordType::SOA;
+    soa.name = "@";
+    soa.ttl  = 3600;
+    soa.data = "ns1." + zoneName + ". admin." + zoneName
+               + ". ( 2024010101 3600 900 604800 300 )";
+
+    ResourceRecord ns;
+    ns.type = RecordType::NS;
+    ns.name = "@";
+    ns.ttl  = 3600;
+    ns.data = "ns1." + zoneName + ".";
+
+    return {soa, ns};
+}
+
 bool BindManager::saveZone(const Zone &zone, const QString &namedConfPath, QString *error) {
     qDebug() << "[BindManager] saveZone zone=" << zone.name;
+
+    Zone zoneToWrite = zone;
+
+    // Новая зона без записей — добавляем обязательные SOA и NS
+    bool hasSoa = false, hasNs = false;
+    for (const ResourceRecord &rr : zone.records) {
+        if (rr.type == RecordType::SOA) hasSoa = true;
+        if (rr.type == RecordType::NS)  hasNs  = true;
+    }
+    if (!hasSoa || !hasNs) {
+        qDebug() << "[BindManager] saveZone: вставляем минимальные SOA/NS для зоны" << zone.name;
+        // prepend чтобы SOA и NS шли первыми
+        QList<ResourceRecord> defaults = minimalRecords(zone.name);
+        for (int i = defaults.size() - 1; i >= 0; --i)
+            zoneToWrite.records.prepend(defaults[i]);
+    }
 
     ConfigValidator validator;
     ConfigWriter writer;
 
     // Записываем файл зоны атомарно
-    if (!writer.writeZoneFile(zone, zone.filePath, &validator, error)) {
+    if (!writer.writeZoneFile(zoneToWrite, zone.filePath, &validator, error)) {
         qWarning() << "[BindManager] saveZone: writeZoneFile failed";
         return false;
     }
