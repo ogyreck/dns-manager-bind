@@ -15,4 +15,9 @@ public:
     bool    reload(QString *error);
     bool    isRunning() const;
     QString version() const;
+
+    // CRUD зон: запись файла + обновление named.conf + reload
+    bool saveZone(const Zone &zone, const QString &namedConfPath, QString *error = nullptr);
+    bool deleteZone(const QString &zoneName, const QString &filePath,
+                    const QString &namedConfPath, QString *error = nullptr);
 };

@@ -1,8 +1,11 @@
 #include "ui/MainWindow.h"
+#include "ui/ZoneDialog.h"
+#include "ui/RecordDialog.h"
 #include "ui_mainwindow.h"
 
 #include <QDebug>
 #include <QMessageBox>
+#include <QTimer>
 
 static QString recordTypeToString(RecordType t) {
     switch (t) {
@@ -108,6 +111,23 @@ void MainWindow::setupStatusBar() {
 
     statusBar()->addWidget(labelBindVersion);
     statusBar()->addPermanentWidget(labelServerStatus);
+
+    m_statusTimer = new QTimer(this);
+    m_statusTimer->setInterval(5000);
+    connect(m_statusTimer, &QTimer::timeout, this, &MainWindow::refreshStatus);
+    m_statusTimer->start();
+
+    refreshStatus();
+}
+
+void MainWindow::refreshStatus() {
+    bool running = m_bindManager.isRunning();
+    QString ver  = m_bindManager.version();
+
+    qDebug() << "[MainWindow] refreshStatus: running=" << running << "version=" << ver;
+
+    labelServerStatus->setText(running ? "● Активен" : "○ Остановлен");
+    labelBindVersion->setText(ver.isEmpty() ? "BIND: не определён" : "BIND: " + ver);
 }
 
 //Заполнение начальными значениями
@@ -159,27 +179,29 @@ void MainWindow::populateTree() {
 }
 
 
-//Слоты
-void MainWindow::onStartServer(){
-
-
-    labelServerStatus->setText("● Статус: активен");
-
-    QMessageBox::information(this, "Запуск", "Сервер запущен(Заглушка)");
+//Слоты управления сервером
+void MainWindow::onStartServer() {
+    qDebug() << "[MainWindow] onStartServer";
+    QString error;
+    if (!m_bindManager.start(&error))
+        QMessageBox::critical(this, "Ошибка запуска", error);
+    refreshStatus();
 }
 
-void MainWindow::onStopServer(){
-
-    labelServerStatus->setText("○ Статус: остановлен");
-
-    QMessageBox::information(this, "Стоп", "Сервер остановлен");
+void MainWindow::onStopServer() {
+    qDebug() << "[MainWindow] onStopServer";
+    QString error;
+    if (!m_bindManager.stop(&error))
+        QMessageBox::critical(this, "Ошибка остановки", error);
+    refreshStatus();
 }
 
-void MainWindow::onRestartServer(){
-
-    labelServerStatus->setText("● Статус: активен");
-
-    QMessageBox::information(this, "Перезапуск", "Сервер перезапущен");
+void MainWindow::onRestartServer() {
+    qDebug() << "[MainWindow] onRestartServer";
+    QString error;
+    if (!m_bindManager.restart(&error))
+        QMessageBox::critical(this, "Ошибка перезапуска", error);
+    refreshStatus();
 }
 
 
@@ -234,28 +256,163 @@ void MainWindow::onTreeItemSelected(QTreeWidgetItem *item, int /*column*/) {
     }
 }
 
+QTreeWidgetItem *MainWindow::currentZoneItem() const {
+    QTreeWidgetItem *item = treeWidget->currentItem();
+    if (!item) return nullptr;
+    if (item->parent() == itemForwardZones || item->parent() == itemReverseZones)
+        return item;
+    return nullptr;
+}
+
+void MainWindow::onAddZone() {
+    qDebug() << "[MainWindow] onAddZone";
+    ZoneDialog dlg(Zone{}, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    Zone zone = dlg.zone();
+    if (zone.name.isEmpty()) return;
+
+    QString error;
+    if (!m_bindManager.saveZone(zone, m_namedConfPath, &error)) {
+        QMessageBox::critical(this, "Ошибка", "Не удалось сохранить зону:\n" + error);
+        return;
+    }
+
+    QTreeWidgetItem *zoneItem = new QTreeWidgetItem();
+    zoneItem->setText(0, zone.name);
+    zoneItem->setData(0, Qt::UserRole, zone.filePath);
+
+    if (zone.view == ZoneView::Reverse)
+        itemReverseZones->addChild(zoneItem);
+    else
+        itemForwardZones->addChild(zoneItem);
+
+    treeWidget->setCurrentItem(zoneItem);
+    statusBar()->showMessage("Зона " + zone.name + " создана");
+}
+
+void MainWindow::onDeleteZone() {
+    qDebug() << "[MainWindow] onDeleteZone";
+    QTreeWidgetItem *item = currentZoneItem();
+    if (!item) return;
+
+    const QString zoneName = item->text(0);
+    const QString filePath = item->data(0, Qt::UserRole).toString();
+
+    int ret = QMessageBox::question(this, "Удалить зону",
+                                     "Удалить зону «" + zoneName + "»?\nФайл " + filePath + " будет удалён.",
+                                     QMessageBox::Yes | QMessageBox::No);
+    if (ret != QMessageBox::Yes) return;
+
+    QString error;
+    if (!m_bindManager.deleteZone(zoneName, filePath, m_namedConfPath, &error)) {
+        QMessageBox::critical(this, "Ошибка", "Не удалось удалить зону:\n" + error);
+        return;
+    }
+
+    QTreeWidgetItem *parent = item->parent();
+    parent->removeChild(item);
+    tableWidget->setRowCount(0);
+    statusBar()->showMessage("Зона " + zoneName + " удалена");
+}
+
+void MainWindow::onAddRecord() {
+    qDebug() << "[MainWindow] onAddRecord";
+    QTreeWidgetItem *zoneItem = currentZoneItem();
+    if (!zoneItem) return;
+
+    const QString zoneName = zoneItem->text(0);
+    const QString filePath = zoneItem->data(0, Qt::UserRole).toString();
+
+    RecordDialog dlg(ResourceRecord{}, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    ResourceRecord newRr = dlg.record();
+
+    // Загрузить текущие записи, добавить новую, сохранить зону
+    QString error;
+    QList<ResourceRecord> records = m_bindManager.loadZoneRecords(filePath, &error);
+    records.append(newRr);
+
+    Zone zone;
+    zone.name     = zoneName;
+    zone.filePath = filePath;
+    zone.records  = records;
+    zone.view     = (zoneItem->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
+
+    if (!m_bindManager.saveZone(zone, m_namedConfPath, &error)) {
+        QMessageBox::critical(this, "Ошибка", "Не удалось сохранить запись:\n" + error);
+        return;
+    }
+
+    // Добавить строку в таблицу
+    QString data = newRr.data;
+    if (newRr.type == RecordType::MX && newRr.priority > 0)
+        data = QString::number(newRr.priority) + " " + newRr.data;
+
+    int row = tableWidget->rowCount();
+    tableWidget->insertRow(row);
+    tableWidget->setItem(row, 0, new QTableWidgetItem(newRr.name));
+    tableWidget->setItem(row, 1, new QTableWidgetItem(recordTypeToString(newRr.type)));
+    tableWidget->setItem(row, 2, new QTableWidgetItem(newRr.ttl ? QString::number(newRr.ttl) : ""));
+    tableWidget->setItem(row, 3, new QTableWidgetItem(data));
+
+    statusBar()->showMessage("Запись добавлена");
+}
+
+void MainWindow::onDeleteRecord() {
+    qDebug() << "[MainWindow] onDeleteRecord";
+    QTreeWidgetItem *zoneItem = currentZoneItem();
+    if (!zoneItem) return;
+
+    int row = tableWidget->currentRow();
+    if (row < 0) return;
+
+    const QString zoneName = zoneItem->text(0);
+    const QString filePath = zoneItem->data(0, Qt::UserRole).toString();
+
+    tableWidget->removeRow(row);
+
+    // Перезагрузить зону без удалённой записи и сохранить
+    QString error;
+    QList<ResourceRecord> records = m_bindManager.loadZoneRecords(filePath, &error);
+    if (row < records.size())
+        records.removeAt(row);
+
+    Zone zone;
+    zone.name     = zoneName;
+    zone.filePath = filePath;
+    zone.records  = records;
+    zone.view     = (zoneItem->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
+
+    if (!m_bindManager.saveZone(zone, m_namedConfPath, &error)) {
+        QMessageBox::critical(this, "Ошибка", "Не удалось сохранить изменения:\n" + error);
+    }
+
+    statusBar()->showMessage("Запись удалена");
+}
+
 void MainWindow::onTreeContextMenu(const QPoint &pos) {
     QTreeWidgetItem *item = treeWidget->itemAt(pos);
     if (!item) return;
 
+    treeWidget->setCurrentItem(item);
     QMenu menu(this);
 
     if (item == itemServer) {
         menu.addAction("Запустить сервер",   this, &MainWindow::onStartServer);
         menu.addAction("Остановить сервер",  this, &MainWindow::onStopServer);
         menu.addAction("Перезапустить",      this, &MainWindow::onRestartServer);
-        menu.addSeparator();
-        menu.addAction("Проверить конфигурацию");
 
     } else if (item == itemForwardZones || item == itemReverseZones) {
-        menu.addAction("Создать зону...");
+        menu.addAction("Создать зону...", this, &MainWindow::onAddZone);
 
     } else if (item->parent() == itemForwardZones ||
                item->parent() == itemReverseZones) {
-        menu.addAction("Создать запись...");
-        menu.addAction("Удалить зону");
+        menu.addAction("Добавить запись...", this, &MainWindow::onAddRecord);
+        menu.addAction("Удалить запись",     this, &MainWindow::onDeleteRecord);
         menu.addSeparator();
-        menu.addAction("Свойства зоны...");
+        menu.addAction("Удалить зону",       this, &MainWindow::onDeleteZone);
 
     } else if (item == itemEventLog) {
         menu.addAction("Обновить журнал");
