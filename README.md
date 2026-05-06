@@ -20,8 +20,7 @@ sudo apt-get install -y \
 ### 2. Сборка из исходников
 
 ```bash
-cmake -S . -B build
-cmake --build build
+cmake -S . -B build && cmake --build build
 ```
 
 ### 3. Запуск
