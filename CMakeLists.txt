@@ -18,14 +18,23 @@ set(SOURCES
     src/ui/MainWindow.h
     src/ui/MainWindow.cpp
     src/ui/mainwindow.ui
+    src/ui/ZoneDialog.h
+    src/ui/ZoneDialog.cpp
+    src/ui/RecordDialog.h
+    src/ui/RecordDialog.cpp
     src/parser/NamedConfParser.h
     src/parser/NamedConfParser.cpp
     src/parser/ZoneFileParser.h
     src/parser/ZoneFileParser.cpp
+    src/parser/ConfigWriter.h
+    src/parser/ConfigWriter.cpp
     src/dns/BindManager.h
     src/dns/BindManager.cpp
+    src/dns/ConfigValidator.h
+    src/dns/ConfigValidator.cpp
     src/model/Zone.h
     src/model/ResourceRecord.h
+    src/model/ServerConfig.h
 )
 
 add_executable(dns-manager-admin ${SOURCES})
