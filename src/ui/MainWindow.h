@@ -6,6 +6,7 @@
 #include <QTreeWidget>
 #include <QTableWidget>
 #include <QLabel>
+#include "dns/BindManager.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -62,4 +63,5 @@ private:
     QAction *actionStop;
     QAction *actionReset;
 
+    BindManager m_bindManager;
 };

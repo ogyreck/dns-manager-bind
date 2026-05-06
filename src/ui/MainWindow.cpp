@@ -1,7 +1,5 @@
 #include "ui/MainWindow.h"
 #include "ui_mainwindow.h"
-#include "parser/NamedConfParser.h"
-#include "parser/ZoneFileParser.h"
 
 #include <QDebug>
 #include <QMessageBox>
@@ -132,13 +130,11 @@ void MainWindow::populateTree() {
     // Раскрываем корень
     treeWidget->expandAll();
 
-    NamedConfParser parser;
-
-    QList<Zone> zones = parser.parse("/etc/bind/named.conf");
-
-    if (!parser.lastError().isEmpty()) {
-           statusBar()->showMessage("Ошибка загрузки: " + parser.lastError());
-           return;
+    QString error;
+    QList<Zone> zones = m_bindManager.loadZones("/etc/bind/named.conf", &error);
+    if (!error.isEmpty()) {
+        statusBar()->showMessage("Ошибка загрузки: " + error);
+        return;
     }
 
     for (const Zone &zone : zones) {
@@ -213,15 +209,13 @@ void MainWindow::onTreeItemSelected(QTreeWidgetItem *item, int /*column*/) {
             return;
         }
 
-        qDebug() << "ZoneFileParser: загружаем" << filePath;
-        ZoneFileParser parser;
-        const QList<ResourceRecord> records = parser.parse(filePath);
-
-        if (!parser.lastError().isEmpty()) {
-            qWarning() << "ZoneFileParser ошибка:" << parser.lastError();
+        QString error;
+        const QList<ResourceRecord> records = m_bindManager.loadZoneRecords(filePath, &error);
+        if (!error.isEmpty()) {
+            qWarning() << "[MainWindow] loadZoneRecords error:" << error;
             int row = tableWidget->rowCount();
             tableWidget->insertRow(row);
-            tableWidget->setItem(row, 0, new QTableWidgetItem("Ошибка: " + parser.lastError()));
+            tableWidget->setItem(row, 0, new QTableWidgetItem("Ошибка: " + error));
             return;
         }
 
