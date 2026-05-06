@@ -50,9 +50,10 @@ ZoneDialog::ZoneDialog(const Zone &zone, QWidget *parent)
 
     connect(m_type, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &ZoneDialog::onTypeChanged);
-    connect(m_browse, &QPushButton::clicked, this, &ZoneDialog::onBrowse);
-    connect(buttons, &QDialogButtonBox::accepted, this, &ZoneDialog::accept);
-    connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
+    connect(m_browse,  &QPushButton::clicked,    this, &ZoneDialog::onBrowse);
+    connect(m_name,    &QLineEdit::textChanged,  this, &ZoneDialog::onNameChanged);
+    connect(buttons,   &QDialogButtonBox::accepted, this, &ZoneDialog::accept);
+    connect(buttons,   &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
 
 void ZoneDialog::onTypeChanged(int index) {
@@ -88,6 +89,15 @@ void ZoneDialog::accept() {
     }
 
     QDialog::accept();
+}
+
+void ZoneDialog::onNameChanged(const QString &name) {
+    const QString current = m_filePath->text();
+    if (current.isEmpty() || current.startsWith("/etc/bind/db.")) {
+        const QString suggested = "/etc/bind/db." + name.toLower();
+        m_filePath->setText(suggested);
+        qDebug() << "[ZoneDialog] autofill filePath=" << suggested;
+    }
 }
 
 Zone ZoneDialog::zone() const {

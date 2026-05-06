@@ -20,14 +20,13 @@ sudo apt-get install -y \
 ### 2. Сборка из исходников
 
 ```bash
-cmake -S . -B build
-cmake --build build
+cmake -S . -B build && cmake --build build
 ```
 
 ### 3. Запуск
 
 ```bash
-./build/dns-manager-admin
+sudo ./build/dns-manager-admin
 ```
 
 Приложение при старте читает `/etc/bind/named.conf`. Если BIND9 не запущен или файл недоступен - ошибка отобразится в статусбаре, GUI откроется(коряво).

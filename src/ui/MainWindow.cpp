@@ -33,6 +33,7 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
     setupCentralWidget();
     setupStatusBar();
     populateTree();
+    updateActions();
 }
 
 void MainWindow::setupToolBar(){
@@ -40,19 +41,41 @@ void MainWindow::setupToolBar(){
     toolBar->setMovable(false);
     toolBar->setIconSize(QSize(24,24));
 
-    //Кнопки
+    // Управление сервером
     actionStart = toolBar->addAction("Запуск");
-    actionStop = toolBar->addAction("Стоп");
+    actionStop  = toolBar->addAction("Стоп");
     actionReset = toolBar->addAction("Перезапуск");
+
+    toolBar->addSeparator();
+
+    // CRUD зон
+    actionAddZone    = toolBar->addAction("Создать зону");
+    actionEditZone   = toolBar->addAction("Свойства зоны");
+    actionDeleteZone = toolBar->addAction("Удалить зону");
+
+    toolBar->addSeparator();
+
+    // CRUD записей
+    actionAddRecord    = toolBar->addAction("Добавить запись");
+    actionEditRecord   = toolBar->addAction("Изменить запись");
+    actionDeleteRecord = toolBar->addAction("Удалить запись");
 
     toolBar->addSeparator();
     toolBar->addAction("Настройки");
     toolBar->addSeparator();
     toolBar->addAction("Помощь");
 
-    connect(actionStart, &QAction::triggered, this, &MainWindow::onStartServer);
-    connect(actionStop, &QAction::triggered, this, &MainWindow::onStopServer);
-    connect(actionReset, &QAction::triggered, this, &MainWindow::onRestartServer);
+    connect(actionStart,  &QAction::triggered, this, &MainWindow::onStartServer);
+    connect(actionStop,   &QAction::triggered, this, &MainWindow::onStopServer);
+    connect(actionReset,  &QAction::triggered, this, &MainWindow::onRestartServer);
+
+    connect(actionAddZone,    &QAction::triggered, this, &MainWindow::onAddZone);
+    connect(actionEditZone,   &QAction::triggered, this, &MainWindow::onEditZone);
+    connect(actionDeleteZone, &QAction::triggered, this, &MainWindow::onDeleteZone);
+
+    connect(actionAddRecord,    &QAction::triggered, this, &MainWindow::onAddRecord);
+    connect(actionEditRecord,   &QAction::triggered, this, &MainWindow::onEditRecord);
+    connect(actionDeleteRecord, &QAction::triggered, this, &MainWindow::onDeleteRecord);
 }
 
 
@@ -85,6 +108,13 @@ void MainWindow::setupTreePanel(){
     connect(treeWidget, &QTreeWidget::itemClicked,
             this, &MainWindow::onTreeItemSelected);
 
+    // Двойной клик по зоне — редактировать
+    connect(treeWidget, &QTreeWidget::itemDoubleClicked,
+            this, [this](QTreeWidgetItem *item, int) {
+                if (currentZoneItem() == item)
+                    onEditZone();
+            });
+
     splitter->addWidget(treeWidget);
 
 }
@@ -100,6 +130,13 @@ void MainWindow::setupTablePanel(){
     tableWidget->setEditTriggers(QAbstractItemView::NoEditTriggers);
     tableWidget->setAlternatingRowColors(true);
 
+    // Двойной клик по строке — редактировать запись
+    connect(tableWidget, &QTableWidget::itemDoubleClicked,
+            this, [this](QTableWidgetItem *) { onEditRecord(); });
+
+    // Смена выделения в таблице — обновить состояние кнопок
+    connect(tableWidget, &QTableWidget::currentCellChanged,
+            this, [this](int, int, int, int) { updateActions(); });
 
     splitter->addWidget(tableWidget);
 }
@@ -254,6 +291,23 @@ void MainWindow::onTreeItemSelected(QTreeWidgetItem *item, int /*column*/) {
             tableWidget->setItem(row, 3, new QTableWidgetItem(data));
         }
     }
+
+    updateActions();
+}
+
+void MainWindow::updateActions() {
+    const bool hasZone = (currentZoneItem() != nullptr);
+    const bool hasRow  = (tableWidget->currentRow() >= 0);
+
+    actionAddZone->setEnabled(true);
+    actionEditZone->setEnabled(hasZone);
+    actionDeleteZone->setEnabled(hasZone);
+
+    actionAddRecord->setEnabled(hasZone);
+    actionEditRecord->setEnabled(hasZone && hasRow);
+    actionDeleteRecord->setEnabled(hasZone && hasRow);
+
+    qDebug() << "[MainWindow] updateActions: hasZone=" << hasZone << "hasRow=" << hasRow;
 }
 
 QTreeWidgetItem *MainWindow::currentZoneItem() const {
@@ -289,6 +343,36 @@ void MainWindow::onAddZone() {
 
     treeWidget->setCurrentItem(zoneItem);
     statusBar()->showMessage("Зона " + zone.name + " создана");
+}
+
+void MainWindow::onEditZone() {
+    QTreeWidgetItem *item = currentZoneItem();
+    if (!item) return;
+
+    const QString zoneName = item->text(0);
+    const QString filePath = item->data(0, Qt::UserRole).toString();
+    qDebug() << "[MainWindow] onEditZone, zone=" << zoneName;
+
+    Zone zone;
+    zone.name     = zoneName;
+    zone.filePath = filePath;
+    zone.view     = (item->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
+
+    ZoneDialog dlg(zone, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    Zone updated = dlg.zone();
+    qDebug() << "[MainWindow] onEditZone: обновлённая зона=" << updated.name << "filePath=" << updated.filePath;
+
+    QString error;
+    if (!m_bindManager.saveZone(updated, m_namedConfPath, &error)) {
+        QMessageBox::critical(this, "Ошибка", "Не удалось сохранить зону:\n" + error);
+        return;
+    }
+
+    item->setText(0, updated.name);
+    item->setData(0, Qt::UserRole, updated.filePath);
+    statusBar()->showMessage("Зона " + updated.name + " обновлена");
 }
 
 void MainWindow::onDeleteZone() {
@@ -360,8 +444,7 @@ void MainWindow::onAddRecord() {
     statusBar()->showMessage("Запись добавлена");
 }
 
-void MainWindow::onDeleteRecord() {
-    qDebug() << "[MainWindow] onDeleteRecord";
+void MainWindow::onEditRecord() {
     QTreeWidgetItem *zoneItem = currentZoneItem();
     if (!zoneItem) return;
 
@@ -370,14 +453,74 @@ void MainWindow::onDeleteRecord() {
 
     const QString zoneName = zoneItem->text(0);
     const QString filePath = zoneItem->data(0, Qt::UserRole).toString();
+    qDebug() << "[MainWindow] onEditRecord row=" << row << "zone=" << zoneName;
 
-    tableWidget->removeRow(row);
-
-    // Перезагрузить зону без удалённой записи и сохранить
     QString error;
     QList<ResourceRecord> records = m_bindManager.loadZoneRecords(filePath, &error);
-    if (row < records.size())
-        records.removeAt(row);
+    if (!error.isEmpty()) {
+        QMessageBox::critical(this, "Ошибка", "Не удалось загрузить записи:\n" + error);
+        return;
+    }
+    if (row >= records.size()) {
+        qWarning() << "[MainWindow] onEditRecord: row" << row << ">= records.size()" << records.size();
+        return;
+    }
+
+    RecordDialog dlg(records[row], this);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    records[row] = dlg.record();
+    const ResourceRecord &rr = records[row];
+    qDebug() << "[MainWindow] onEditRecord: обновлённая запись name=" << rr.name << "type=" << static_cast<int>(rr.type);
+
+    Zone zone;
+    zone.name     = zoneName;
+    zone.filePath = filePath;
+    zone.records  = records;
+    zone.view     = (zoneItem->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
+
+    if (!m_bindManager.saveZone(zone, m_namedConfPath, &error)) {
+        QMessageBox::critical(this, "Ошибка", "Не удалось сохранить запись:\n" + error);
+        return;
+    }
+
+    // Обновить строку таблицы
+    QString data = rr.data;
+    if (rr.type == RecordType::MX && rr.priority > 0)
+        data = QString::number(rr.priority) + " " + rr.data;
+
+    tableWidget->setItem(row, 0, new QTableWidgetItem(rr.name));
+    tableWidget->setItem(row, 1, new QTableWidgetItem(recordTypeToString(rr.type)));
+    tableWidget->setItem(row, 2, new QTableWidgetItem(rr.ttl ? QString::number(rr.ttl) : ""));
+    tableWidget->setItem(row, 3, new QTableWidgetItem(data));
+
+    statusBar()->showMessage("Запись обновлена");
+    qDebug() << "[MainWindow] onEditRecord: запись row=" << row << "обновлена";
+}
+
+void MainWindow::onDeleteRecord() {
+    QTreeWidgetItem *zoneItem = currentZoneItem();
+    if (!zoneItem) return;
+
+    int row = tableWidget->currentRow();
+    if (row < 0) return;
+
+    const QString zoneName = zoneItem->text(0);
+    const QString filePath = zoneItem->data(0, Qt::UserRole).toString();
+    qDebug() << "[MainWindow] onDeleteRecord row=" << row << "zone=" << zoneName;
+
+    QString error;
+    QList<ResourceRecord> records = m_bindManager.loadZoneRecords(filePath, &error);
+    if (!error.isEmpty()) {
+        QMessageBox::critical(this, "Ошибка", "Не удалось загрузить записи:\n" + error);
+        return;
+    }
+    if (row >= records.size()) {
+        qWarning() << "[MainWindow] onDeleteRecord: row" << row << ">= records.size()" << records.size();
+        return;
+    }
+
+    records.removeAt(row);
 
     Zone zone;
     zone.name     = zoneName;
@@ -387,9 +530,12 @@ void MainWindow::onDeleteRecord() {
 
     if (!m_bindManager.saveZone(zone, m_namedConfPath, &error)) {
         QMessageBox::critical(this, "Ошибка", "Не удалось сохранить изменения:\n" + error);
+        return;
     }
 
+    tableWidget->removeRow(row);
     statusBar()->showMessage("Запись удалена");
+    qDebug() << "[MainWindow] onDeleteRecord: запись удалена, строк осталось" << tableWidget->rowCount();
 }
 
 void MainWindow::onTreeContextMenu(const QPoint &pos) {
@@ -409,10 +555,12 @@ void MainWindow::onTreeContextMenu(const QPoint &pos) {
 
     } else if (item->parent() == itemForwardZones ||
                item->parent() == itemReverseZones) {
-        menu.addAction("Добавить запись...", this, &MainWindow::onAddRecord);
-        menu.addAction("Удалить запись",     this, &MainWindow::onDeleteRecord);
+        menu.addAction("Добавить запись...",  this, &MainWindow::onAddRecord);
+        menu.addAction("Свойства записи...",  this, &MainWindow::onEditRecord);
+        menu.addAction("Удалить запись",      this, &MainWindow::onDeleteRecord);
         menu.addSeparator();
-        menu.addAction("Удалить зону",       this, &MainWindow::onDeleteZone);
+        menu.addAction("Свойства зоны...",    this, &MainWindow::onEditZone);
+        menu.addAction("Удалить зону",        this, &MainWindow::onDeleteZone);
 
     } else if (item == itemEventLog) {
         menu.addAction("Обновить журнал");

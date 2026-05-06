@@ -33,14 +33,19 @@ private slots:
 
     // CRUD зон
     void onAddZone();
+    void onEditZone();
     void onDeleteZone();
 
     // CRUD записей
     void onAddRecord();
+    void onEditRecord();
     void onDeleteRecord();
 
     // Статусбар
     void refreshStatus();
+
+    // Управление активностью кнопок
+    void updateActions();
 
 private:
     // Методы UI
@@ -71,10 +76,18 @@ private:
     QLabel  *labelServerStatus;
     QTimer  *m_statusTimer;
 
-    // Actions
+    // Actions — управление сервером
     QAction *actionStart;
     QAction *actionStop;
     QAction *actionReset;
+
+    // Actions — CRUD зон и записей
+    QAction *actionAddZone;
+    QAction *actionEditZone;
+    QAction *actionDeleteZone;
+    QAction *actionAddRecord;
+    QAction *actionEditRecord;
+    QAction *actionDeleteRecord;
 
     BindManager m_bindManager;
     QString     m_namedConfPath = "/etc/bind/named.conf";
