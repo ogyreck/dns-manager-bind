@@ -22,6 +22,8 @@ set(SOURCES
     src/parser/NamedConfParser.cpp
     src/parser/ZoneFileParser.h
     src/parser/ZoneFileParser.cpp
+    src/dns/BindManager.h
+    src/dns/BindManager.cpp
     src/model/Zone.h
     src/model/ResourceRecord.h
 )

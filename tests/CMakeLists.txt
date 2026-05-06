@@ -8,25 +8,27 @@ FetchContent_Declare(
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(googletest)
 
-# Библиотека парсеров (без Qt Widgets) для тестов
-add_library(dns_parsers STATIC
+# Библиотека dns/ + parser/ (без Qt Widgets) для тестов
+add_library(dns_layer STATIC
     ${CMAKE_SOURCE_DIR}/src/parser/NamedConfParser.cpp
     ${CMAKE_SOURCE_DIR}/src/parser/ZoneFileParser.cpp
+    ${CMAKE_SOURCE_DIR}/src/dns/BindManager.cpp
 )
-target_include_directories(dns_parsers PUBLIC ${CMAKE_SOURCE_DIR}/src)
-target_link_libraries(dns_parsers Qt5::Core)
+target_include_directories(dns_layer PUBLIC ${CMAKE_SOURCE_DIR}/src)
+target_link_libraries(dns_layer Qt5::Core)
 
 add_executable(dns_parser_tests
     main.cpp
     parser/test_named_conf_parser.cpp
     parser/test_zone_file_parser.cpp
+    dns/test_bind_manager.cpp
 )
 
 target_include_directories(dns_parser_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 target_link_libraries(dns_parser_tests
     GTest::gtest
-    dns_parsers
+    dns_layer
     Qt5::Core
 )
 
