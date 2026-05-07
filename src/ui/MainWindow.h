@@ -7,7 +7,9 @@
 #include <QTreeWidget>
 #include <QTableWidget>
 #include <QLabel>
+#include <QProgressBar>
 #include "dns/BindManager.h"
+#include "model/ServerConfig.h"
 
 QT_BEGIN_NAMESPACE
 namespace Ui { class MainWindow; }
@@ -47,6 +49,12 @@ private slots:
     // Управление активностью кнопок
     void updateActions();
 
+    // Настройки
+    void onSettings();
+
+    // Операции с сервером (async)
+    void onServerCommandFinished(const QString &action, bool success, const QString &error);
+
 private:
     // Методы UI
     void setupToolBar();
@@ -58,7 +66,9 @@ private:
 
     // Вспомогательные методы
     QTreeWidgetItem *currentZoneItem() const;
-    QString          namedConfPath()   const { return m_namedConfPath; }
+    void             loadSettings();
+    void             saveSettings();
+    void             setServerBusy(bool busy, const QString &message = {});
 
     // Виджеты
     QToolBar    *toolBar;
@@ -72,9 +82,10 @@ private:
     QTreeWidgetItem *itemEventLog;
 
     // Статус
-    QLabel  *labelBindVersion;
-    QLabel  *labelServerStatus;
-    QTimer  *m_statusTimer;
+    QLabel       *labelBindVersion;
+    QLabel       *labelServerStatus;
+    QProgressBar *m_progressBar;
+    QTimer       *m_statusTimer;
 
     // Actions — управление сервером
     QAction *actionStart;
@@ -89,6 +100,6 @@ private:
     QAction *actionEditRecord;
     QAction *actionDeleteRecord;
 
-    BindManager m_bindManager;
-    QString     m_namedConfPath = "/etc/bind/named.conf";
+    BindManager  *m_bindManager;
+    ServerConfig  m_serverConfig;
 };

@@ -1,10 +1,14 @@
 #include "ui/MainWindow.h"
 #include "ui/ZoneDialog.h"
 #include "ui/RecordDialog.h"
+#include "ui/SettingsDialog.h"
 #include "ui_mainwindow.h"
 
+#include <QApplication>
 #include <QDebug>
 #include <QMessageBox>
+#include <QSettings>
+#include <QStyle>
 #include <QTimer>
 
 static QString recordTypeToString(RecordType t) {
@@ -23,17 +27,40 @@ static QString recordTypeToString(RecordType t) {
 
 
 
-MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent)
+MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent),
+    m_bindManager(new BindManager(this))
 {
     setWindowTitle("dns-manager-admin");
     setMinimumSize(900, 600);
     resize(1100, 700);
 
+    connect(m_bindManager, &BindManager::commandFinished,
+            this, &MainWindow::onServerCommandFinished);
+
+    loadSettings();
     setupToolBar();
     setupCentralWidget();
     setupStatusBar();
     populateTree();
     updateActions();
+}
+
+void MainWindow::loadSettings() {
+    QSettings s("dns-manager-admin", "dns-manager-admin");
+    m_serverConfig.namedConfPath = s.value("server/namedConfPath",
+                                            m_serverConfig.namedConfPath).toString();
+    m_serverConfig.workDir       = s.value("server/workDir",
+                                            m_serverConfig.workDir).toString();
+    qDebug() << "[MainWindow] loadSettings: namedConfPath=" << m_serverConfig.namedConfPath
+             << "workDir=" << m_serverConfig.workDir;
+}
+
+void MainWindow::saveSettings() {
+    QSettings s("dns-manager-admin", "dns-manager-admin");
+    s.setValue("server/namedConfPath", m_serverConfig.namedConfPath);
+    s.setValue("server/workDir",       m_serverConfig.workDir);
+    qDebug() << "[MainWindow] saveSettings: namedConfPath=" << m_serverConfig.namedConfPath
+             << "workDir=" << m_serverConfig.workDir;
 }
 
 void MainWindow::setupToolBar(){
@@ -42,9 +69,10 @@ void MainWindow::setupToolBar(){
     toolBar->setIconSize(QSize(24,24));
 
     // Управление сервером
-    actionStart = toolBar->addAction("Запуск");
-    actionStop  = toolBar->addAction("Стоп");
-    actionReset = toolBar->addAction("Перезапуск");
+    QStyle *st = QApplication::style();
+    actionStart = toolBar->addAction(st->standardIcon(QStyle::SP_MediaPlay),  "Запуск");
+    actionStop  = toolBar->addAction(st->standardIcon(QStyle::SP_MediaStop),  "Стоп");
+    actionReset = toolBar->addAction(st->standardIcon(QStyle::SP_BrowserReload), "Перезапуск");
 
     toolBar->addSeparator();
 
@@ -61,7 +89,8 @@ void MainWindow::setupToolBar(){
     actionDeleteRecord = toolBar->addAction("Удалить запись");
 
     toolBar->addSeparator();
-    toolBar->addAction("Настройки");
+    QAction *actionSettings = toolBar->addAction(
+        st->standardIcon(QStyle::SP_FileDialogDetailedView), "Настройки");
     toolBar->addSeparator();
     toolBar->addAction("Помощь");
 
@@ -76,6 +105,8 @@ void MainWindow::setupToolBar(){
     connect(actionAddRecord,    &QAction::triggered, this, &MainWindow::onAddRecord);
     connect(actionEditRecord,   &QAction::triggered, this, &MainWindow::onEditRecord);
     connect(actionDeleteRecord, &QAction::triggered, this, &MainWindow::onDeleteRecord);
+
+    connect(actionSettings, &QAction::triggered, this, &MainWindow::onSettings);
 }
 
 
@@ -144,9 +175,16 @@ void MainWindow::setupTablePanel(){
 //Статус бар
 void MainWindow::setupStatusBar() {
     labelBindVersion  = new QLabel("BIND: не определён");
-    labelServerStatus = new QLabel("● Статус: неизвестно");
+    labelServerStatus = new QLabel();
+    labelServerStatus->setTextFormat(Qt::RichText);
+
+    m_progressBar = new QProgressBar(this);
+    m_progressBar->setRange(0, 0);
+    m_progressBar->setFixedWidth(120);
+    m_progressBar->setVisible(false);
 
     statusBar()->addWidget(labelBindVersion);
+    statusBar()->addWidget(m_progressBar);
     statusBar()->addPermanentWidget(labelServerStatus);
 
     m_statusTimer = new QTimer(this);
@@ -158,13 +196,67 @@ void MainWindow::setupStatusBar() {
 }
 
 void MainWindow::refreshStatus() {
-    bool running = m_bindManager.isRunning();
-    QString ver  = m_bindManager.version();
+    bool running = m_bindManager->isRunning();
+    QString ver  = m_bindManager->version();
 
     qDebug() << "[MainWindow] refreshStatus: running=" << running << "version=" << ver;
 
-    labelServerStatus->setText(running ? "● Активен" : "○ Остановлен");
+    if (running) {
+        labelServerStatus->setText("<font color='#2ecc71'>●</font> Активен");
+        actionStart->setEnabled(false);
+        actionStop->setEnabled(true);
+        actionReset->setEnabled(true);
+    } else {
+        labelServerStatus->setText("<font color='#e74c3c'>●</font> Остановлен");
+        actionStart->setEnabled(true);
+        actionStop->setEnabled(false);
+        actionReset->setEnabled(false);
+    }
     labelBindVersion->setText(ver.isEmpty() ? "BIND: не определён" : "BIND: " + ver);
+}
+
+void MainWindow::setServerBusy(bool busy, const QString &message) {
+    qDebug() << "[MainWindow] setServerBusy: busy=" << busy << "message=" << message;
+    m_progressBar->setVisible(busy);
+    if (busy) {
+        labelServerStatus->setText("<font color='#f39c12'>●</font> " + message);
+        statusBar()->showMessage(message);
+        actionStart->setEnabled(false);
+        actionStop->setEnabled(false);
+        actionReset->setEnabled(false);
+    } else {
+        statusBar()->clearMessage();
+        refreshStatus();
+    }
+}
+
+void MainWindow::onSettings() {
+    qDebug() << "[MainWindow] onSettings: открытие диалога настроек";
+    SettingsDialog dlg(m_serverConfig, this);
+    if (dlg.exec() != QDialog::Accepted) return;
+
+    m_serverConfig = dlg.config();
+    saveSettings();
+    qDebug() << "[MainWindow] onSettings: applied new config, namedConfPath="
+             << m_serverConfig.namedConfPath;
+
+    // Перезагрузить дерево зон с новыми настройками
+    treeWidget->clear();
+    itemServer = nullptr;
+    populateTree();
+}
+
+void MainWindow::onServerCommandFinished(const QString &action, bool success, const QString &error) {
+    qDebug() << "[MainWindow] onServerCommandFinished: action=" << action
+             << "success=" << success;
+    setServerBusy(false);
+    if (!success) {
+        QMessageBox::critical(this, "Ошибка операции с сервером",
+                               "Команда «" + action + "» завершилась с ошибкой:\n" + error);
+    } else {
+        statusBar()->showMessage("Команда «" + action + "» выполнена успешно", 3000);
+    }
+    refreshStatus();
 }
 
 //Заполнение начальными значениями
@@ -188,7 +280,7 @@ void MainWindow::populateTree() {
     treeWidget->expandAll();
 
     QString error;
-    QList<Zone> zones = m_bindManager.loadZones("/etc/bind/named.conf", &error);
+    QList<Zone> zones = m_bindManager->loadZones(m_serverConfig.namedConfPath, &error);
     if (!error.isEmpty()) {
         statusBar()->showMessage("Ошибка загрузки: " + error);
         return;
@@ -219,26 +311,20 @@ void MainWindow::populateTree() {
 //Слоты управления сервером
 void MainWindow::onStartServer() {
     qDebug() << "[MainWindow] onStartServer";
-    QString error;
-    if (!m_bindManager.start(&error))
-        QMessageBox::critical(this, "Ошибка запуска", error);
-    refreshStatus();
+    setServerBusy(true, "Запускаю сервер...");
+    m_bindManager->startAsync();
 }
 
 void MainWindow::onStopServer() {
     qDebug() << "[MainWindow] onStopServer";
-    QString error;
-    if (!m_bindManager.stop(&error))
-        QMessageBox::critical(this, "Ошибка остановки", error);
-    refreshStatus();
+    setServerBusy(true, "Останавливаю сервер...");
+    m_bindManager->stopAsync();
 }
 
 void MainWindow::onRestartServer() {
     qDebug() << "[MainWindow] onRestartServer";
-    QString error;
-    if (!m_bindManager.restart(&error))
-        QMessageBox::critical(this, "Ошибка перезапуска", error);
-    refreshStatus();
+    setServerBusy(true, "Перезапускаю сервер...");
+    m_bindManager->restartAsync();
 }
 
 
@@ -269,7 +355,7 @@ void MainWindow::onTreeItemSelected(QTreeWidgetItem *item, int /*column*/) {
         }
 
         QString error;
-        const QList<ResourceRecord> records = m_bindManager.loadZoneRecords(filePath, &error);
+        const QList<ResourceRecord> records = m_bindManager->loadZoneRecords(filePath, &error);
         if (!error.isEmpty()) {
             qWarning() << "[MainWindow] loadZoneRecords error:" << error;
             int row = tableWidget->rowCount();
@@ -320,14 +406,14 @@ QTreeWidgetItem *MainWindow::currentZoneItem() const {
 
 void MainWindow::onAddZone() {
     qDebug() << "[MainWindow] onAddZone";
-    ZoneDialog dlg(Zone{}, this);
+    ZoneDialog dlg(Zone{}, m_serverConfig.workDir, this);
     if (dlg.exec() != QDialog::Accepted) return;
 
     Zone zone = dlg.zone();
     if (zone.name.isEmpty()) return;
 
     QString error;
-    if (!m_bindManager.saveZone(zone, m_namedConfPath, &error)) {
+    if (!m_bindManager->saveZone(zone, m_serverConfig.namedConfPath, &error)) {
         QMessageBox::critical(this, "Ошибка", "Не удалось сохранить зону:\n" + error);
         return;
     }
@@ -358,14 +444,14 @@ void MainWindow::onEditZone() {
     zone.filePath = filePath;
     zone.view     = (item->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
 
-    ZoneDialog dlg(zone, this);
+    ZoneDialog dlg(zone, m_serverConfig.workDir, this);
     if (dlg.exec() != QDialog::Accepted) return;
 
     Zone updated = dlg.zone();
     qDebug() << "[MainWindow] onEditZone: обновлённая зона=" << updated.name << "filePath=" << updated.filePath;
 
     QString error;
-    if (!m_bindManager.saveZone(updated, m_namedConfPath, &error)) {
+    if (!m_bindManager->saveZone(updated, m_serverConfig.namedConfPath, &error)) {
         QMessageBox::critical(this, "Ошибка", "Не удалось сохранить зону:\n" + error);
         return;
     }
@@ -389,7 +475,7 @@ void MainWindow::onDeleteZone() {
     if (ret != QMessageBox::Yes) return;
 
     QString error;
-    if (!m_bindManager.deleteZone(zoneName, filePath, m_namedConfPath, &error)) {
+    if (!m_bindManager->deleteZone(zoneName, filePath, m_serverConfig.namedConfPath, &error)) {
         QMessageBox::critical(this, "Ошибка", "Не удалось удалить зону:\n" + error);
         return;
     }
@@ -415,7 +501,7 @@ void MainWindow::onAddRecord() {
 
     // Загрузить текущие записи, добавить новую, сохранить зону
     QString error;
-    QList<ResourceRecord> records = m_bindManager.loadZoneRecords(filePath, &error);
+    QList<ResourceRecord> records = m_bindManager->loadZoneRecords(filePath, &error);
     records.append(newRr);
 
     Zone zone;
@@ -424,7 +510,7 @@ void MainWindow::onAddRecord() {
     zone.records  = records;
     zone.view     = (zoneItem->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
 
-    if (!m_bindManager.saveZone(zone, m_namedConfPath, &error)) {
+    if (!m_bindManager->saveZone(zone, m_serverConfig.namedConfPath, &error)) {
         QMessageBox::critical(this, "Ошибка", "Не удалось сохранить запись:\n" + error);
         return;
     }
@@ -456,7 +542,7 @@ void MainWindow::onEditRecord() {
     qDebug() << "[MainWindow] onEditRecord row=" << row << "zone=" << zoneName;
 
     QString error;
-    QList<ResourceRecord> records = m_bindManager.loadZoneRecords(filePath, &error);
+    QList<ResourceRecord> records = m_bindManager->loadZoneRecords(filePath, &error);
     if (!error.isEmpty()) {
         QMessageBox::critical(this, "Ошибка", "Не удалось загрузить записи:\n" + error);
         return;
@@ -479,7 +565,7 @@ void MainWindow::onEditRecord() {
     zone.records  = records;
     zone.view     = (zoneItem->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
 
-    if (!m_bindManager.saveZone(zone, m_namedConfPath, &error)) {
+    if (!m_bindManager->saveZone(zone, m_serverConfig.namedConfPath, &error)) {
         QMessageBox::critical(this, "Ошибка", "Не удалось сохранить запись:\n" + error);
         return;
     }
@@ -510,7 +596,7 @@ void MainWindow::onDeleteRecord() {
     qDebug() << "[MainWindow] onDeleteRecord row=" << row << "zone=" << zoneName;
 
     QString error;
-    QList<ResourceRecord> records = m_bindManager.loadZoneRecords(filePath, &error);
+    QList<ResourceRecord> records = m_bindManager->loadZoneRecords(filePath, &error);
     if (!error.isEmpty()) {
         QMessageBox::critical(this, "Ошибка", "Не удалось загрузить записи:\n" + error);
         return;
@@ -528,7 +614,7 @@ void MainWindow::onDeleteRecord() {
     zone.records  = records;
     zone.view     = (zoneItem->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
 
-    if (!m_bindManager.saveZone(zone, m_namedConfPath, &error)) {
+    if (!m_bindManager->saveZone(zone, m_serverConfig.namedConfPath, &error)) {
         QMessageBox::critical(this, "Ошибка", "Не удалось сохранить изменения:\n" + error);
         return;
     }
