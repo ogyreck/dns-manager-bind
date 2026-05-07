@@ -49,8 +49,10 @@ add_executable(dns_manager_ui_tests
     main_ui.cpp
     ui/test_zonedialog.cpp
     ui/test_recorddialog.cpp
+    ui/test_zonewizard.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/ZoneDialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/RecordDialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/ZoneWizard.cpp
 )
 
 target_include_directories(dns_manager_ui_tests PRIVATE

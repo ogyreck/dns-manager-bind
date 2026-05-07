@@ -222,41 +222,20 @@ static bool removeZoneFromConf(const QString &zoneName, const QString &namedConf
     return true;
 }
 
-// Формирует минимальный набор SOA + NS для новой пустой зоны
-static QList<ResourceRecord> minimalRecords(const QString &zoneName) {
-    ResourceRecord soa;
-    soa.type = RecordType::SOA;
-    soa.name = "@";
-    soa.ttl  = 3600;
-    soa.data = "ns1." + zoneName + ". admin." + zoneName
-               + ". ( 2024010101 3600 900 604800 300 )";
-
-    ResourceRecord ns;
-    ns.type = RecordType::NS;
-    ns.name = "@";
-    ns.ttl  = 3600;
-    ns.data = "ns1." + zoneName + ".";
-
-    return {soa, ns};
-}
-
 bool BindManager::saveZone(const Zone &zone, const QString &namedConfPath, QString *error) {
     qDebug() << "[BindManager] saveZone zone=" << zone.name;
 
     Zone zoneToWrite = zone;
 
-    // Новая зона без записей — добавляем обязательные SOA и NS
+    // ZoneWizard гарантирует наличие SOA и NS — здесь только диагностика
     bool hasSoa = false, hasNs = false;
     for (const ResourceRecord &rr : zone.records) {
         if (rr.type == RecordType::SOA) hasSoa = true;
         if (rr.type == RecordType::NS)  hasNs  = true;
     }
     if (!hasSoa || !hasNs) {
-        qDebug() << "[BindManager] saveZone: вставляем минимальные SOA/NS для зоны" << zone.name;
-        // prepend чтобы SOA и NS шли первыми
-        QList<ResourceRecord> defaults = minimalRecords(zone.name);
-        for (int i = defaults.size() - 1; i >= 0; --i)
-            zoneToWrite.records.prepend(defaults[i]);
+        qWarning() << "[BindManager] saveZone: зона" << zone.name
+                   << "не содержит SOA или NS — валидация скорее всего завершится ошибкой";
     }
 
     ConfigValidator validator;

@@ -24,6 +24,8 @@ set(SOURCES
     src/ui/RecordDialog.cpp
     src/ui/SettingsDialog.h
     src/ui/SettingsDialog.cpp
+    src/ui/ZoneWizard.h
+    src/ui/ZoneWizard.cpp
     src/parser/NamedConfParser.h
     src/parser/NamedConfParser.cpp
     src/parser/ZoneFileParser.h

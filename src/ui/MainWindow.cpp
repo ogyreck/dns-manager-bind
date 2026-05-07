@@ -1,5 +1,6 @@
 #include "ui/MainWindow.h"
 #include "ui/ZoneDialog.h"
+#include "ui/ZoneWizard.h"
 #include "ui/RecordDialog.h"
 #include "ui/SettingsDialog.h"
 #include "ui_mainwindow.h"
@@ -405,11 +406,12 @@ QTreeWidgetItem *MainWindow::currentZoneItem() const {
 }
 
 void MainWindow::onAddZone() {
-    qDebug() << "[MainWindow] onAddZone";
-    ZoneDialog dlg(Zone{}, m_serverConfig.workDir, this);
-    if (dlg.exec() != QDialog::Accepted) return;
+    qDebug() << "[MainWindow] onAddZone: открываем ZoneWizard";
+    ZoneWizard wiz(m_serverConfig.workDir, this);
+    if (wiz.exec() != QDialog::Accepted) return;
 
-    Zone zone = dlg.zone();
+    Zone zone = wiz.buildZone();
+    qDebug() << "[MainWindow] onAddZone: zone собрана, records=" << zone.records.size();
     if (zone.name.isEmpty()) return;
 
     QString error;
