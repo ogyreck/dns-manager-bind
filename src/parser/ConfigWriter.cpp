@@ -46,7 +46,7 @@ bool ConfigWriter::writeZoneFile(const Zone &zone,
     // NS-записи
     for (const ResourceRecord &rr : zone.records) {
         if (rr.type == RecordType::NS) {
-            out << "  IN NS " << rr.data << "\n";
+            out << rr.name << " IN NS " << rr.data << "\n";
         }
     }
 
