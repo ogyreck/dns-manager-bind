@@ -47,5 +47,19 @@ target_include_directories(dns-manager-admin PRIVATE src)
 
 target_link_libraries(dns-manager-admin Qt5::Widgets)
 
+include(GNUInstallDirs)
+install(TARGETS dns-manager-admin
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+
+set(CPACK_GENERATOR "DEB")
+set(CPACK_PACKAGE_NAME "dns-manager-admin")
+set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Графический менеджер DNS BIND9 для Astra Linux")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "ogyreck")
+set(CPACK_DEBIAN_PACKAGE_SECTION "net")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt5widgets5 (>= 5.15), libqt5core5a (>= 5.15), bind9utils")
+include(CPack)
+
 enable_testing()
 add_subdirectory(tests)
