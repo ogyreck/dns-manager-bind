@@ -407,7 +407,13 @@ QTreeWidgetItem *MainWindow::currentZoneItem() const {
 
 void MainWindow::onAddZone() {
     qDebug() << "[MainWindow] onAddZone: открываем ZoneWizard";
-    ZoneWizard wiz(m_serverConfig.workDir, this);
+    ZoneView hint = ZoneView::Forward;
+    QTreeWidgetItem *sel = treeWidget->currentItem();
+    if (sel == itemReverseZones ||
+        (sel && sel->parent() == itemReverseZones))
+        hint = ZoneView::Reverse;
+
+    ZoneWizard wiz(m_serverConfig.workDir, hint, this);
     if (wiz.exec() != QDialog::Accepted) return;
 
     Zone zone = wiz.buildZone();

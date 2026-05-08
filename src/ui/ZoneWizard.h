@@ -17,7 +17,9 @@ class QTableWidget;
 class ZoneWizardPage1 : public QWizardPage {
     Q_OBJECT
 public:
-    explicit ZoneWizardPage1(const QString &workDir, QWidget *parent = nullptr);
+    explicit ZoneWizardPage1(const QString &workDir,
+                             ZoneView hint = ZoneView::Forward,
+                             QWidget *parent = nullptr);
     bool isComplete() const override;
 
 private slots:
@@ -71,6 +73,7 @@ private slots:
 
 private:
     QTableWidget *m_table;
+    bool          m_isReverse = false;
 };
 
 // Шаг 4: дополнительные начальные записи (необязательный)
@@ -92,7 +95,9 @@ private:
 class ZoneWizard : public QWizard {
     Q_OBJECT
 public:
-    explicit ZoneWizard(const QString &workDir, QWidget *parent = nullptr);
+    explicit ZoneWizard(const QString &workDir,
+                        ZoneView hint = ZoneView::Forward,
+                        QWidget *parent = nullptr);
     Zone buildZone() const;
 
     // Доступ к страницам (для unit-тестов)

@@ -20,14 +20,20 @@
 // ZoneWizardPage1 — базовая информация зоны
 // =============================================================================
 
-ZoneWizardPage1::ZoneWizardPage1(const QString &workDir, QWidget *parent)
+ZoneWizardPage1::ZoneWizardPage1(const QString &workDir, ZoneView hint, QWidget *parent)
     : QWizardPage(parent), m_workDir(workDir)
 {
     setTitle("Основная информация");
-    setSubTitle("Введите имя, тип и путь к файлу зоны.");
 
     m_name = new QLineEdit(this);
-    m_name->setPlaceholderText("example.com");
+
+    if (hint == ZoneView::Reverse) {
+        setSubTitle("Введите имя обратной зоны (например: 1.168.192.in-addr.arpa).");
+        m_name->setPlaceholderText("1.168.192.in-addr.arpa");
+    } else {
+        setSubTitle("Введите имя, тип и путь к файлу зоны.");
+        m_name->setPlaceholderText("example.com");
+    }
 
     m_type = new QComboBox(this);
     m_type->addItem("Master", static_cast<int>(ZoneType::Master));
@@ -181,14 +187,25 @@ ZoneWizardPage2::ZoneWizardPage2(QWidget *parent) : QWizardPage(parent)
 
 void ZoneWizardPage2::initializePage() {
     const QString zoneName = field("zoneName").toString();
-    m_primaryNs->setText("ns1." + zoneName + ".");
-    m_adminEmail->setText("admin." + zoneName + ".");
+    const bool isReverse = zoneName.contains("in-addr.arpa")
+                           || zoneName.contains("ip6.arpa");
+
+    if (isReverse) {
+        // Для обратной зоны NS-сервер находится в прямом домене — пользователь вводит вручную
+        m_primaryNs->clear();
+        m_primaryNs->setPlaceholderText("ns1.example.com.");
+        m_adminEmail->clear();
+        m_adminEmail->setPlaceholderText("admin.example.com.");
+    } else {
+        m_primaryNs->setText("ns1." + zoneName + ".");
+        m_adminEmail->setText("admin." + zoneName + ".");
+    }
 
     const QString serial = QDate::currentDate().toString("yyyyMMdd") + "01";
     m_serial->setText(serial);
 
-    qDebug() << "[ZoneWizardPage2] initializePage: primaryNs=" << m_primaryNs->text()
-             << "serial=" << serial;
+    qDebug() << "[ZoneWizardPage2] initializePage: reverse=" << isReverse
+             << "primaryNs=" << m_primaryNs->text() << "serial=" << serial;
 }
 
 bool ZoneWizardPage2::validatePage() {
@@ -241,35 +258,69 @@ ZoneWizardPage3::ZoneWizardPage3(QWidget *parent) : QWizardPage(parent)
 }
 
 void ZoneWizardPage3::initializePage() {
+    const QString zoneName = field("zoneName").toString();
+    m_isReverse = zoneName.contains("in-addr.arpa") || zoneName.contains("ip6.arpa");
+
+    if (m_isReverse) {
+        // В обратной зоне A-запись не создаётся — колонка IP не нужна
+        m_table->setColumnCount(1);
+        m_table->setHorizontalHeaderLabels({"NS-сервер"});
+        setSubTitle("Укажите NS-серверы обратной зоны. IP-адреса добавьте в прямой зоне.");
+    } else {
+        m_table->setColumnCount(2);
+        m_table->setHorizontalHeaderLabels({"NS-сервер", "IP-адрес"});
+        setSubTitle("Укажите NS-серверы и их IP-адреса. Хотя бы одна строка обязательна.");
+    }
+    m_table->horizontalHeader()->setStretchLastSection(true);
+
     m_table->blockSignals(true);
     m_table->setRowCount(0);
     m_table->insertRow(0);
     m_table->setItem(0, 0, new QTableWidgetItem(field("primaryNs").toString()));
-    m_table->setItem(0, 1, new QTableWidgetItem(""));
+    if (!m_isReverse)
+        m_table->setItem(0, 1, new QTableWidgetItem(""));
     m_table->blockSignals(false);
 
-    qDebug() << "[ZoneWizardPage3] initializePage: prefilled NS="
-             << field("primaryNs").toString();
+    qDebug() << "[ZoneWizardPage3] initializePage: reverse=" << m_isReverse
+             << "prefilled NS=" << field("primaryNs").toString();
     emit completeChanged();
 }
 
 bool ZoneWizardPage3::isComplete() const {
-    const auto entries = nsEntries();
-    const bool complete = !entries.isEmpty();
-    qDebug() << "[ZoneWizardPage3] isComplete:" << complete
-             << "entries=" << entries.size();
-    return complete;
+    bool hasEntry = false;
+    for (int row = 0; row < m_table->rowCount(); ++row) {
+        const auto *nsItem = m_table->item(row, 0);
+        if (!nsItem || nsItem->text().trimmed().isEmpty()) continue;
+        if (m_isReverse) {
+            hasEntry = true;
+            break;
+        }
+        const auto *ipItem = m_table->item(row, 1);
+        if (ipItem && !ipItem->text().trimmed().isEmpty()) {
+            hasEntry = true;
+            break;
+        }
+    }
+    qDebug() << "[ZoneWizardPage3] isComplete:" << hasEntry
+             << "reverse=" << m_isReverse;
+    return hasEntry;
 }
 
 QList<QPair<QString, QString>> ZoneWizardPage3::nsEntries() const {
     QList<QPair<QString, QString>> result;
     for (int row = 0; row < m_table->rowCount(); ++row) {
         const auto *nsItem = m_table->item(row, 0);
-        const auto *ipItem = m_table->item(row, 1);
-        if (!nsItem || !ipItem) continue;
+        if (!nsItem) continue;
         const QString ns = nsItem->text().trimmed();
+        if (ns.isEmpty()) continue;
+        if (m_isReverse) {
+            result.append({ns, ""});
+            continue;
+        }
+        const auto *ipItem = m_table->item(row, 1);
+        if (!ipItem) continue;
         const QString ip = ipItem->text().trimmed();
-        if (!ns.isEmpty() && !ip.isEmpty())
+        if (!ip.isEmpty())
             result.append({ns, ip});
     }
     return result;
@@ -328,6 +379,7 @@ static RecordType recordTypeFromString(const QString &s) {
     if (s == "CNAME") return RecordType::CNAME;
     if (s == "MX")    return RecordType::MX;
     if (s == "TXT")   return RecordType::TXT;
+    if (s == "PTR")   return RecordType::PTR;
     return RecordType::A;
 }
 
@@ -361,7 +413,7 @@ void ZoneWizardPage4::addRow() {
     m_table->setItem(row, 0, new QTableWidgetItem(""));
 
     auto *typeCombo = new QComboBox;
-    typeCombo->addItems({"A", "AAAA", "CNAME", "MX", "TXT"});
+    typeCombo->addItems({"A", "AAAA", "CNAME", "MX", "TXT", "PTR"});
     m_table->setCellWidget(row, 1, typeCombo);
 
     m_table->setItem(row, 2, new QTableWidgetItem(""));
@@ -380,13 +432,13 @@ void ZoneWizardPage4::removeRow() {
 // ZoneWizard — главный класс, собирает все страницы
 // =============================================================================
 
-ZoneWizard::ZoneWizard(const QString &workDir, QWidget *parent)
+ZoneWizard::ZoneWizard(const QString &workDir, ZoneView hint, QWidget *parent)
     : QWizard(parent)
 {
     setWindowTitle("Создание DNS-зоны");
     setMinimumSize(500, 400);
 
-    m_page1 = new ZoneWizardPage1(workDir, this);
+    m_page1 = new ZoneWizardPage1(workDir, hint, this);
     m_page2 = new ZoneWizardPage2(this);
     m_page3 = new ZoneWizardPage3(this);
     m_page4 = new ZoneWizardPage4(this);
@@ -434,20 +486,22 @@ Zone ZoneWizard::buildZone() const {
         nsRr.data = ns;
         zone.records.append(nsRr);
 
-        // A-запись для NS: nsShortName = ns без ".zoneName." суффикса
-        QString nsShortName = ns;
-        if (nsShortName.endsWith('.'))
-            nsShortName.chop(1);
-        const QString zoneSuffix = "." + zone.name;
-        if (nsShortName.endsWith(zoneSuffix))
-            nsShortName.chop(zoneSuffix.length());
+        // A-запись для NS создаётся только в прямых зонах
+        if (zone.view == ZoneView::Forward && !ip.isEmpty()) {
+            QString nsShortName = ns;
+            if (nsShortName.endsWith('.'))
+                nsShortName.chop(1);
+            const QString zoneSuffix = "." + zone.name;
+            if (nsShortName.endsWith(zoneSuffix))
+                nsShortName.chop(zoneSuffix.length());
 
-        ResourceRecord aRr;
-        aRr.type = RecordType::A;
-        aRr.name = nsShortName;
-        aRr.ttl  = ttl;
-        aRr.data = ip;
-        zone.records.append(aRr);
+            ResourceRecord aRr;
+            aRr.type = RecordType::A;
+            aRr.name = nsShortName;
+            aRr.ttl  = ttl;
+            aRr.data = ip;
+            zone.records.append(aRr);
+        }
     }
 
     // Дополнительные записи из страницы 4
