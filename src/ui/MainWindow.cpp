@@ -13,6 +13,7 @@
 #include <QMessageBox>
 #include <QSettings>
 #include <QStyle>
+#include <QHostInfo>
 #include <QTimer>
 
 static QString recordTypeToString(RecordType t) {
@@ -286,7 +287,9 @@ void MainWindow::onServerCommandFinished(const QString &action, bool success, co
 void MainWindow::populateTree() {
     // Корневой узел — сервер
     itemServer = new QTreeWidgetItem(treeWidget);
-    itemServer->setText(0, "localhost");
+    QSettings s("dns-manager-admin", "dns-manager-admin");
+    QString serverAddress = s.value("server/address", "localhost").toString();
+    itemServer->setText(0, QHostInfo::localHostName() + " (" + serverAddress + ")");
 
 
     // Дочерние узлы
