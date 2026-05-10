@@ -8,8 +8,8 @@ enum class ZoneView { Forward, Reverse };
 
 struct Zone {
     QString name;
-    ZoneType type;
-    ZoneView view;
+    ZoneType type = ZoneType::Master;
+    ZoneView view = ZoneView::Forward;
     QString filePath;
     QString masterIp;
     QList<ResourceRecord> records;

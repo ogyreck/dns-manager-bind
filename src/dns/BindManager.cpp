@@ -312,8 +312,13 @@ bool BindManager::saveZone(const Zone &zone, const QString &namedConfPath, QStri
         if (rr.type == RecordType::NS)  hasNs  = true;
     }
     if (!hasSoa || !hasNs) {
-        qWarning() << "[BindManager] saveZone: зона" << zone.name
-                   << "не содержит SOA или NS — валидация скорее всего завершится ошибкой";
+        QStringList missing;
+        if (!hasSoa) missing << "SOA";
+        if (!hasNs)  missing << "NS";
+        const QString msg = "Зона «" + zone.name + "» не содержит обязательных записей: " + missing.join(", ");
+        qWarning() << "[FIX] saveZone:" << msg;
+        if (error) *error = msg;
+        return false;
     }
 
     ConfigValidator validator;

@@ -315,7 +315,9 @@ void MainWindow::populateTree() {
 
             // Кладём путь к файлу зоны в UserRole —
             // потом достанем когда пользователь кликнет на зону
-        zoneItem->setData(0, Qt::UserRole, zone.filePath);
+        zoneItem->setData(0, Qt::UserRole,     zone.filePath);
+        zoneItem->setData(0, Qt::UserRole + 1, static_cast<int>(zone.type));
+        zoneItem->setData(0, Qt::UserRole + 2, zone.masterIp);
 
             // Определяем куда добавить - прямая или обратная зона
          if (zone.name.contains("in-addr.arpa") ||
@@ -458,7 +460,9 @@ void MainWindow::onAddZone() {
 
     QTreeWidgetItem *zoneItem = new QTreeWidgetItem();
     zoneItem->setText(0, zone.name);
-    zoneItem->setData(0, Qt::UserRole, zone.filePath);
+    zoneItem->setData(0, Qt::UserRole,     zone.filePath);
+    zoneItem->setData(0, Qt::UserRole + 1, static_cast<int>(zone.type));
+    zoneItem->setData(0, Qt::UserRole + 2, zone.masterIp);
 
     if (zone.view == ZoneView::Reverse)
         itemReverseZones->addChild(zoneItem);
@@ -480,6 +484,8 @@ void MainWindow::onEditZone() {
     Zone zone;
     zone.name     = zoneName;
     zone.filePath = filePath;
+    zone.type     = static_cast<ZoneType>(item->data(0, Qt::UserRole + 1).toInt());
+    zone.masterIp = item->data(0, Qt::UserRole + 2).toString();
     zone.view     = (item->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
 
     ZoneDialog dlg(zone, m_serverConfig.workDir, this);
@@ -489,6 +495,11 @@ void MainWindow::onEditZone() {
     qDebug() << "[MainWindow] onEditZone: обновлённая зона=" << updated.name << "filePath=" << updated.filePath;
 
     QString error;
+    updated.records = m_bindManager->loadZoneRecords(filePath, &error);
+    if (!error.isEmpty()) {
+        QMessageBox::critical(this, "Ошибка", "Не удалось загрузить записи зоны:\n" + error);
+        return;
+    }
     qDebug() << "[MainWindow] logging event: редактирование зоны" << updated.name;
     if (!m_bindManager->saveZone(updated, m_serverConfig.namedConfPath, &error)) {
         const bool isValidation = error.contains("named-checkconf") || error.contains("named-checkzone");
@@ -503,7 +514,9 @@ void MainWindow::onEditZone() {
                                  "Зона «" + updated.name + "» обновлена");
 
     item->setText(0, updated.name);
-    item->setData(0, Qt::UserRole, updated.filePath);
+    item->setData(0, Qt::UserRole,     updated.filePath);
+    item->setData(0, Qt::UserRole + 1, static_cast<int>(updated.type));
+    item->setData(0, Qt::UserRole + 2, updated.masterIp);
     statusBar()->showMessage("Зона " + updated.name + " обновлена");
 }
 
@@ -559,6 +572,8 @@ void MainWindow::onAddRecord() {
     zone.name     = zoneName;
     zone.filePath = filePath;
     zone.records  = records;
+    zone.type     = static_cast<ZoneType>(zoneItem->data(0, Qt::UserRole + 1).toInt());
+    zone.masterIp = zoneItem->data(0, Qt::UserRole + 2).toString();
     zone.view     = (zoneItem->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
 
     qDebug() << "[MainWindow] logging event: добавление записи" << newRr.name << "в зону" << zoneName;
@@ -622,6 +637,8 @@ void MainWindow::onEditRecord() {
     zone.name     = zoneName;
     zone.filePath = filePath;
     zone.records  = records;
+    zone.type     = static_cast<ZoneType>(zoneItem->data(0, Qt::UserRole + 1).toInt());
+    zone.masterIp = zoneItem->data(0, Qt::UserRole + 2).toString();
     zone.view     = (zoneItem->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
 
     qDebug() << "[MainWindow] logging event: редактирование записи" << rr.name << "в зону" << zoneName;
@@ -680,6 +697,8 @@ void MainWindow::onDeleteRecord() {
     zone.name     = zoneName;
     zone.filePath = filePath;
     zone.records  = records;
+    zone.type     = static_cast<ZoneType>(zoneItem->data(0, Qt::UserRole + 1).toInt());
+    zone.masterIp = zoneItem->data(0, Qt::UserRole + 2).toString();
     zone.view     = (zoneItem->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
 
     qDebug() << "[MainWindow] logging event: удаление записи" << deletedName << "из зоны" << zoneName;
