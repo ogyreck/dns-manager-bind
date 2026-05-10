@@ -9,7 +9,7 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOUIC_SEARCH_PATHS src/ui)
 
-find_package(Qt5 REQUIRED COMPONENTS Widgets)
+find_package(Qt5 REQUIRED COMPONENTS Widgets Network)
 
 add_compile_options(-Wall -Wextra)
 
@@ -47,7 +47,7 @@ add_executable(dns-manager-admin ${SOURCES})
 
 target_include_directories(dns-manager-admin PRIVATE src)
 
-target_link_libraries(dns-manager-admin Qt5::Widgets)
+target_link_libraries(dns-manager-admin Qt5::Widgets Qt5::Network)
 
 include(GNUInstallDirs)
 install(TARGETS dns-manager-admin
