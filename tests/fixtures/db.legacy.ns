@@ -1,0 +1,4 @@
+$TTL 3600
+@   IN SOA ns1.legacy. admin.legacy. ( 2024010101 3600 900 604800 300 )
+IN NS ns1.legacy.
+ns1 IN A 192.168.1.1

@@ -75,6 +75,26 @@ TEST(ZoneFileParser, ReverseZone) {
     EXPECT_TRUE(ptrData.contains("host.example.com.")) << "PTR host не найден";
 }
 
+// Регрессия: строка «IN NS ns1.legacy.» без owner-поля (старый формат ConfigWriter)
+// должна давать NS-запись с name == "@", а не "IN".
+TEST(ZoneFileParser, LegacyNsWithoutOwner) {
+    ZoneFileParser parser;
+    QList<ResourceRecord> records = parser.parse(fixturesDir() + "/db.legacy.ns");
+
+    EXPECT_TRUE(parser.lastError().isEmpty());
+
+    bool foundNs = false;
+    for (const ResourceRecord &rr : records) {
+        if (rr.type == RecordType::NS) {
+            foundNs = true;
+            EXPECT_EQ(rr.name, "@")
+                << "NS без owner должен наследовать lastOwner (@), получено: "
+                << rr.name.toStdString();
+        }
+    }
+    EXPECT_TRUE(foundNs) << "NS-запись не найдена";
+}
+
 TEST(ZoneFileParser, DefaultTtl) {
     ZoneFileParser parser;
     QList<ResourceRecord> records = parser.parse(fixturesDir() + "/db.example.com");

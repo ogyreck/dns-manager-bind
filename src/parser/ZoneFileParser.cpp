@@ -111,12 +111,14 @@ QList<ResourceRecord> ZoneFileParser::parse(const QString &filePath) {
 
         bool startsWithWhitespace = false;
         {
-            // Ищем оригинальную строку до simplified()
-            // После наших преобразований это не всегда доступно,
-            // поэтому применяем эвристику: если первый токен — известный тип,
-            // то blank owner.
-            if (isKnownType(tokens[0].toUpper()))
+            const QString t0 = tokens[0].toUpper();
+            if (isKnownType(t0)) {
                 startsWithWhitespace = true;
+            } else if ((t0 == "IN" || t0 == "CH" || t0 == "HS") &&
+                       tokens.size() > 1 && isKnownType(tokens[1].toUpper())) {
+                // строка вида «IN NS ...» без owner — старый формат без leading whitespace
+                startsWithWhitespace = true;
+            }
         }
 
         if (startsWithWhitespace) {
