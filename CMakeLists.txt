@@ -36,6 +36,8 @@ set(SOURCES
     src/dns/BindManager.cpp
     src/dns/ConfigValidator.h
     src/dns/ConfigValidator.cpp
+    src/dns/EventLogger.h
+    src/dns/EventLogger.cpp
     src/model/Zone.h
     src/model/ResourceRecord.h
     src/model/ServerConfig.h
