@@ -1,3 +1,5 @@
+find_package(Qt5 REQUIRED COMPONENTS Core Test)
+
 include(FetchContent)
 
 FetchContent_Declare(
@@ -15,6 +17,7 @@ add_library(dns_layer STATIC
     ${CMAKE_SOURCE_DIR}/src/parser/ConfigWriter.cpp
     ${CMAKE_SOURCE_DIR}/src/dns/BindManager.cpp
     ${CMAKE_SOURCE_DIR}/src/dns/ConfigValidator.cpp
+    ${CMAKE_SOURCE_DIR}/src/dns/EventLogger.cpp
 )
 target_include_directories(dns_layer PUBLIC ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(dns_layer Qt5::Core)
@@ -26,6 +29,7 @@ add_executable(dns_parser_tests
     dns/test_bind_manager.cpp
     dns/test_config_validator.cpp
     dns/test_config_writer.cpp
+    dns/test_event_logger.cpp
 )
 
 target_include_directories(dns_parser_tests PRIVATE ${CMAKE_SOURCE_DIR}/src)
@@ -34,7 +38,10 @@ target_link_libraries(dns_parser_tests
     GTest::gtest
     dns_layer
     Qt5::Core
+    Qt5::Test
 )
+
+set_target_properties(dns_parser_tests PROPERTIES AUTOMOC ON)
 
 # Путь к fixture-файлам передаём через define
 target_compile_definitions(dns_parser_tests PRIVATE

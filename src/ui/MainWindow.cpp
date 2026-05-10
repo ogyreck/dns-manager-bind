@@ -3,10 +3,13 @@
 #include "ui/ZoneWizard.h"
 #include "ui/RecordDialog.h"
 #include "ui/SettingsDialog.h"
+#include "dns/EventLogger.h"
 #include "ui_mainwindow.h"
 
 #include <QApplication>
+#include <QColor>
 #include <QDebug>
+#include <QMap>
 #include <QMessageBox>
 #include <QSettings>
 #include <QStyle>
@@ -37,6 +40,9 @@ MainWindow::MainWindow(QWidget *parent) : QMainWindow(parent),
 
     connect(m_bindManager, &BindManager::commandFinished,
             this, &MainWindow::onServerCommandFinished);
+
+    connect(EventLogger::instance(), &EventLogger::eventAdded,
+            this, &MainWindow::refreshEventLog);
 
     loadSettings();
     setupToolBar();
@@ -250,6 +256,22 @@ void MainWindow::onSettings() {
 void MainWindow::onServerCommandFinished(const QString &action, bool success, const QString &error) {
     qDebug() << "[MainWindow] onServerCommandFinished: action=" << action
              << "success=" << success;
+
+    static const QMap<QString, QString> actionNames = {
+        {"start",   "Сервер BIND9 запущен"},
+        {"stop",    "Сервер BIND9 остановлен"},
+        {"restart", "Сервер BIND9 перезапущен"},
+        {"reload",  "Конфигурация BIND9 перезагружена"},
+    };
+    const QString msg = actionNames.value(action, "Команда «" + action + "»");
+    qDebug() << "[MainWindow] logging event: server command" << action << "success=" << success;
+    if (success) {
+        EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Server, msg);
+    } else {
+        EventLogger::instance()->log(EventLog::Level::Error, EventLog::Category::Server,
+                                     msg + " — ошибка: " + error);
+    }
+
     setServerBusy(false);
     if (!success) {
         QMessageBox::critical(this, "Ошибка операции с сервером",
@@ -335,8 +357,8 @@ void MainWindow::onTreeItemSelected(QTreeWidgetItem *item, int /*column*/) {
 
     // Определяем что выбрано и заполняем таблицу нужными данными
     if (item == itemEventLog) {
-        // Потом здесь: загрузить и отобразить журнал
-        tableWidget->setHorizontalHeaderLabels({"Время", "Уровень", "Сообщение", ""});
+        tableWidget->setHorizontalHeaderLabels({"Время", "Уровень", "Категория", "Сообщение"});
+        refreshEventLog();
         return;
     }
 
@@ -421,10 +443,18 @@ void MainWindow::onAddZone() {
     if (zone.name.isEmpty()) return;
 
     QString error;
+    qDebug() << "[MainWindow] logging event: добавление зоны" << zone.name;
     if (!m_bindManager->saveZone(zone, m_serverConfig.namedConfPath, &error)) {
+        const bool isValidation = error.contains("named-checkconf") || error.contains("named-checkzone");
+        EventLogger::instance()->log(
+            EventLog::Level::Error,
+            isValidation ? EventLog::Category::Validation : EventLog::Category::Zone,
+            "Ошибка создания зоны «" + zone.name + "»: " + error);
         QMessageBox::critical(this, "Ошибка", "Не удалось сохранить зону:\n" + error);
         return;
     }
+    EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Zone,
+                                 "Зона «" + zone.name + "» создана");
 
     QTreeWidgetItem *zoneItem = new QTreeWidgetItem();
     zoneItem->setText(0, zone.name);
@@ -459,10 +489,18 @@ void MainWindow::onEditZone() {
     qDebug() << "[MainWindow] onEditZone: обновлённая зона=" << updated.name << "filePath=" << updated.filePath;
 
     QString error;
+    qDebug() << "[MainWindow] logging event: редактирование зоны" << updated.name;
     if (!m_bindManager->saveZone(updated, m_serverConfig.namedConfPath, &error)) {
+        const bool isValidation = error.contains("named-checkconf") || error.contains("named-checkzone");
+        EventLogger::instance()->log(
+            EventLog::Level::Error,
+            isValidation ? EventLog::Category::Validation : EventLog::Category::Zone,
+            "Ошибка сохранения зоны «" + updated.name + "»: " + error);
         QMessageBox::critical(this, "Ошибка", "Не удалось сохранить зону:\n" + error);
         return;
     }
+    EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Zone,
+                                 "Зона «" + updated.name + "» обновлена");
 
     item->setText(0, updated.name);
     item->setData(0, Qt::UserRole, updated.filePath);
@@ -483,10 +521,15 @@ void MainWindow::onDeleteZone() {
     if (ret != QMessageBox::Yes) return;
 
     QString error;
+    qDebug() << "[MainWindow] logging event: удаление зоны" << zoneName;
     if (!m_bindManager->deleteZone(zoneName, filePath, m_serverConfig.namedConfPath, &error)) {
+        EventLogger::instance()->log(EventLog::Level::Error, EventLog::Category::Zone,
+                                     "Ошибка удаления зоны «" + zoneName + "»: " + error);
         QMessageBox::critical(this, "Ошибка", "Не удалось удалить зону:\n" + error);
         return;
     }
+    EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Zone,
+                                 "Зона «" + zoneName + "» удалена");
 
     QTreeWidgetItem *parent = item->parent();
     parent->removeChild(item);
@@ -518,10 +561,18 @@ void MainWindow::onAddRecord() {
     zone.records  = records;
     zone.view     = (zoneItem->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
 
+    qDebug() << "[MainWindow] logging event: добавление записи" << newRr.name << "в зону" << zoneName;
     if (!m_bindManager->saveZone(zone, m_serverConfig.namedConfPath, &error)) {
+        const bool isValidation = error.contains("named-checkconf") || error.contains("named-checkzone");
+        EventLogger::instance()->log(
+            EventLog::Level::Error,
+            isValidation ? EventLog::Category::Validation : EventLog::Category::Record,
+            "Ошибка добавления записи «" + newRr.name + "» в зону «" + zoneName + "»: " + error);
         QMessageBox::critical(this, "Ошибка", "Не удалось сохранить запись:\n" + error);
         return;
     }
+    EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Record,
+                                 "Запись «" + newRr.name + "» добавлена в зону «" + zoneName + "»");
 
     // Добавить строку в таблицу
     QString data = newRr.data;
@@ -573,10 +624,18 @@ void MainWindow::onEditRecord() {
     zone.records  = records;
     zone.view     = (zoneItem->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
 
+    qDebug() << "[MainWindow] logging event: редактирование записи" << rr.name << "в зону" << zoneName;
     if (!m_bindManager->saveZone(zone, m_serverConfig.namedConfPath, &error)) {
+        const bool isValidation = error.contains("named-checkconf") || error.contains("named-checkzone");
+        EventLogger::instance()->log(
+            EventLog::Level::Error,
+            isValidation ? EventLog::Category::Validation : EventLog::Category::Record,
+            "Ошибка редактирования записи «" + rr.name + "» в зоне «" + zoneName + "»: " + error);
         QMessageBox::critical(this, "Ошибка", "Не удалось сохранить запись:\n" + error);
         return;
     }
+    EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Record,
+                                 "Запись «" + rr.name + "» обновлена в зоне «" + zoneName + "»");
 
     // Обновить строку таблицы
     QString data = rr.data;
@@ -614,6 +673,7 @@ void MainWindow::onDeleteRecord() {
         return;
     }
 
+    const QString deletedName = records[row].name;
     records.removeAt(row);
 
     Zone zone;
@@ -622,10 +682,15 @@ void MainWindow::onDeleteRecord() {
     zone.records  = records;
     zone.view     = (zoneItem->parent() == itemReverseZones) ? ZoneView::Reverse : ZoneView::Forward;
 
+    qDebug() << "[MainWindow] logging event: удаление записи" << deletedName << "из зоны" << zoneName;
     if (!m_bindManager->saveZone(zone, m_serverConfig.namedConfPath, &error)) {
+        EventLogger::instance()->log(EventLog::Level::Error, EventLog::Category::Record,
+                                     "Ошибка удаления записи «" + deletedName + "» из зоны «" + zoneName + "»: " + error);
         QMessageBox::critical(this, "Ошибка", "Не удалось сохранить изменения:\n" + error);
         return;
     }
+    EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Record,
+                                 "Запись «" + deletedName + "» удалена из зоны «" + zoneName + "»");
 
     tableWidget->removeRow(row);
     statusBar()->showMessage("Запись удалена");
@@ -657,11 +722,71 @@ void MainWindow::onTreeContextMenu(const QPoint &pos) {
         menu.addAction("Удалить зону",        this, &MainWindow::onDeleteZone);
 
     } else if (item == itemEventLog) {
-        menu.addAction("Обновить журнал");
-        menu.addAction("Очистить отображение");
+        qDebug() << "[MainWindow] context menu: refresh/clear event log";
+        menu.addAction("Обновить журнал", this, &MainWindow::refreshEventLog);
+        menu.addAction("Очистить отображение", this, [this]() {
+            qDebug() << "[MainWindow] context menu: clear event log";
+            EventLogger::instance()->clear();
+            refreshEventLog();
+        });
     }
 
     menu.exec(treeWidget->viewport()->mapToGlobal(pos));
+}
+
+void MainWindow::refreshEventLog() {
+    // Показываем журнал только когда выбран узел "Просмотр событий"
+    if (treeWidget->currentItem() != itemEventLog)
+        return;
+
+    const QList<EventLogEntry> allEntries = EventLogger::instance()->entries();
+    tableWidget->setRowCount(0);
+    tableWidget->setColumnCount(4);
+    tableWidget->setHorizontalHeaderLabels({"Время", "Уровень", "Категория", "Сообщение"});
+
+    auto levelToString = [](EventLog::Level l) -> QString {
+        switch (l) {
+            case EventLog::Level::Debug:   return "Debug";
+            case EventLog::Level::Info:    return "Info";
+            case EventLog::Level::Warning: return "Warning";
+            case EventLog::Level::Error:   return "Error";
+        }
+        return {};
+    };
+
+    auto categoryToString = [](EventLog::Category c) -> QString {
+        switch (c) {
+            case EventLog::Category::Server:     return "Сервер";
+            case EventLog::Category::Zone:       return "Зона";
+            case EventLog::Category::Record:     return "Запись";
+            case EventLog::Category::Validation: return "Валидация";
+        }
+        return {};
+    };
+
+    for (const EventLogEntry &e : allEntries) {
+        int row = tableWidget->rowCount();
+        tableWidget->insertRow(row);
+
+        tableWidget->setItem(row, 0, new QTableWidgetItem(e.timestamp.toString("yyyy-MM-dd hh:mm:ss")));
+        tableWidget->setItem(row, 1, new QTableWidgetItem(levelToString(e.level)));
+        tableWidget->setItem(row, 2, new QTableWidgetItem(categoryToString(e.category)));
+        tableWidget->setItem(row, 3, new QTableWidgetItem(e.message));
+
+        if (e.level == EventLog::Level::Error) {
+            for (int col = 0; col < 4; ++col) {
+                if (auto *it = tableWidget->item(row, col))
+                    it->setBackground(QColor(255, 200, 200));
+            }
+        } else if (e.level == EventLog::Level::Warning) {
+            for (int col = 0; col < 4; ++col) {
+                if (auto *it = tableWidget->item(row, col))
+                    it->setBackground(QColor(255, 240, 200));
+            }
+        }
+    }
+
+    qDebug() << "[MainWindow] refreshEventLog:" << allEntries.size() << "entries displayed";
 }
 
 MainWindow::~MainWindow()

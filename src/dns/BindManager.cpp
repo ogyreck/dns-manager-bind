@@ -1,4 +1,5 @@
 #include "dns/BindManager.h"
+#include "dns/EventLogger.h"
 #include "parser/NamedConfParser.h"
 #include "parser/ZoneFileParser.h"
 #include "parser/ConfigWriter.h"
@@ -71,22 +72,54 @@ static bool runSystemctl(const QString &action, QString *error) {
 
 bool BindManager::start(QString *error) {
     qDebug() << "[BindManager] start";
-    return runSystemctl("start", error);
+    const bool ok = runSystemctl("start", error);
+    qDebug() << "[BindManager] EventLogger: logging start result=" << ok;
+    if (ok)
+        EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Server,
+                                     "Сервер BIND9 запущен");
+    else
+        EventLogger::instance()->log(EventLog::Level::Error, EventLog::Category::Server,
+                                     "Ошибка запуска BIND9: " + (error ? *error : QString()));
+    return ok;
 }
 
 bool BindManager::stop(QString *error) {
     qDebug() << "[BindManager] stop";
-    return runSystemctl("stop", error);
+    const bool ok = runSystemctl("stop", error);
+    qDebug() << "[BindManager] EventLogger: logging stop result=" << ok;
+    if (ok)
+        EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Server,
+                                     "Сервер BIND9 остановлен");
+    else
+        EventLogger::instance()->log(EventLog::Level::Error, EventLog::Category::Server,
+                                     "Ошибка остановки BIND9: " + (error ? *error : QString()));
+    return ok;
 }
 
 bool BindManager::restart(QString *error) {
     qDebug() << "[BindManager] restart";
-    return runSystemctl("restart", error);
+    const bool ok = runSystemctl("restart", error);
+    qDebug() << "[BindManager] EventLogger: logging restart result=" << ok;
+    if (ok)
+        EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Server,
+                                     "Сервер BIND9 перезапущен");
+    else
+        EventLogger::instance()->log(EventLog::Level::Error, EventLog::Category::Server,
+                                     "Ошибка перезапуска BIND9: " + (error ? *error : QString()));
+    return ok;
 }
 
 bool BindManager::reload(QString *error) {
     qDebug() << "[BindManager] reload";
-    return runSystemctl("reload", error);
+    const bool ok = runSystemctl("reload", error);
+    qDebug() << "[BindManager] EventLogger: logging reload result=" << ok;
+    if (ok)
+        EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Server,
+                                     "Конфигурация BIND9 перезагружена");
+    else
+        EventLogger::instance()->log(EventLog::Level::Error, EventLog::Category::Server,
+                                     "Ошибка перезагрузки BIND9: " + (error ? *error : QString()));
+    return ok;
 }
 
 // Запускает systemctl <action> <service> асинхронно; эмитирует commandFinished.
