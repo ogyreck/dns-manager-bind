@@ -1,4 +1,5 @@
 #include "dns/BindManager.h"
+#include "dns/EventLogger.h"
 #include "parser/NamedConfParser.h"
 #include "parser/ZoneFileParser.h"
 #include "parser/ConfigWriter.h"
@@ -33,20 +34,37 @@ QList<ResourceRecord> BindManager::loadZoneRecords(const QString &filePath, QStr
     return records;
 }
 
-// Запускает systemctl <action> named; при ошибке пробует bind9.
-static bool runSystemctl(const QString &action, QString *error) {
-    QString lastErr;
-    for (const QString svc : {"named", "bind9"}) {
-        const QStringList args = {action, svc};
-        qDebug() << "[BindManager] systemctl" << args;
+// Определяет имя сервиса BIND9 (bind9 или named) один раз и кэширует результат.
+static QString detectServiceName() {
+    static QString s_cached;
+    if (!s_cached.isEmpty()) return s_cached;
+    for (const QString svc : {"bind9", "named"}) {
         QProcess proc;
-        proc.start("systemctl", args);
-        proc.waitForFinished(10000);
-        int code = proc.exitCode();
-        qDebug() << "[BindManager] systemctl" << action << svc << "exitCode:" << code;
-        if (code == 0) return true;
-        lastErr = proc.readAllStandardError().trimmed();
+        proc.start("systemctl", {"cat", svc + ".service"});
+        proc.waitForFinished(5000);
+        if (proc.exitCode() == 0) {
+            qDebug() << "[FIX] detectServiceName: using" << svc;
+            s_cached = svc;
+            return s_cached;
+        }
     }
+    qWarning() << "[FIX] detectServiceName: bind9 и named не найдены, использую named";
+    s_cached = "named";
+    return s_cached;
+}
+
+// Запускает systemctl <action> для BIND9-сервиса.
+static bool runSystemctl(const QString &action, QString *error) {
+    const QString svc = detectServiceName();
+    const QStringList args = {action, svc};
+    qDebug() << "[BindManager] systemctl" << args;
+    QProcess proc;
+    proc.start("systemctl", args);
+    proc.waitForFinished(10000);
+    const int code = proc.exitCode();
+    qDebug() << "[BindManager] systemctl" << action << svc << "exitCode:" << code;
+    if (code == 0) return true;
+    const QString lastErr = proc.readAllStandardError().trimmed();
     qWarning() << "[BindManager]" << action << "failed:" << lastErr;
     if (error) *error = lastErr;
     return false;
@@ -54,84 +72,118 @@ static bool runSystemctl(const QString &action, QString *error) {
 
 bool BindManager::start(QString *error) {
     qDebug() << "[BindManager] start";
-    return runSystemctl("start", error);
+    const bool ok = runSystemctl("start", error);
+    qDebug() << "[BindManager] EventLogger: logging start result=" << ok;
+    if (ok)
+        EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Server,
+                                     "Сервер BIND9 запущен");
+    else
+        EventLogger::instance()->log(EventLog::Level::Error, EventLog::Category::Server,
+                                     "Ошибка запуска BIND9: " + (error ? *error : QString()));
+    return ok;
 }
 
 bool BindManager::stop(QString *error) {
     qDebug() << "[BindManager] stop";
-    return runSystemctl("stop", error);
+    const bool ok = runSystemctl("stop", error);
+    qDebug() << "[BindManager] EventLogger: logging stop result=" << ok;
+    if (ok)
+        EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Server,
+                                     "Сервер BIND9 остановлен");
+    else
+        EventLogger::instance()->log(EventLog::Level::Error, EventLog::Category::Server,
+                                     "Ошибка остановки BIND9: " + (error ? *error : QString()));
+    return ok;
 }
 
 bool BindManager::restart(QString *error) {
     qDebug() << "[BindManager] restart";
-    return runSystemctl("restart", error);
+    const bool ok = runSystemctl("restart", error);
+    qDebug() << "[BindManager] EventLogger: logging restart result=" << ok;
+    if (ok)
+        EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Server,
+                                     "Сервер BIND9 перезапущен");
+    else
+        EventLogger::instance()->log(EventLog::Level::Error, EventLog::Category::Server,
+                                     "Ошибка перезапуска BIND9: " + (error ? *error : QString()));
+    return ok;
 }
 
 bool BindManager::reload(QString *error) {
     qDebug() << "[BindManager] reload";
-    return runSystemctl("reload", error);
+    const bool ok = runSystemctl("reload", error);
+    qDebug() << "[BindManager] EventLogger: logging reload result=" << ok;
+    if (ok)
+        EventLogger::instance()->log(EventLog::Level::Info, EventLog::Category::Server,
+                                     "Конфигурация BIND9 перезагружена");
+    else
+        EventLogger::instance()->log(EventLog::Level::Error, EventLog::Category::Server,
+                                     "Ошибка перезагрузки BIND9: " + (error ? *error : QString()));
+    return ok;
 }
 
-// Запускает systemctl <action> <service> асинхронно; при завершении
-// перебирает сервисы named/bind9 и эмитирует commandFinished.
+// Запускает systemctl <action> <service> асинхронно; эмитирует commandFinished.
+// При ошибке старта дополнительно запускает named-checkconf для диагностики.
 void BindManager::runSystemctlAsync(const QString &action, const QString &service) {
     auto *proc = new QProcess(this);
     qDebug() << "[BindManager]" << action << "Async: launched systemctl" << action << service;
     connect(proc, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished),
-            this, [this, proc, action, service](int code, QProcess::ExitStatus) {
+            this, [this, proc, action](int code, QProcess::ExitStatus) {
                 proc->deleteLater();
                 if (code == 0) {
                     qDebug() << "[BindManager] commandFinished: action=" << action << "success=true";
                     emit commandFinished(action, true, {});
                     return;
                 }
-                // Первый сервис (named) не ответил — пробуем bind9
-                const QString fallback = (service == "named") ? "bind9" : QString();
-                if (!fallback.isEmpty()) {
-                    runSystemctlAsync(action, fallback);
-                } else {
-                    const QString err = proc->readAllStandardError().trimmed();
-                    qWarning() << "[BindManager] commandFinished: action=" << action
-                               << "success=false err=" << err;
-                    emit commandFinished(action, false, err);
+                QString err = proc->readAllStandardError().trimmed();
+                if (action == "start") {
+                    QProcess checkConf;
+                    checkConf.start("named-checkconf", QStringList{});
+                    if (checkConf.waitForStarted(3000) && checkConf.waitForFinished(5000)) {
+                        const QString confOut = (checkConf.readAllStandardOutput() +
+                                                 checkConf.readAllStandardError()).trimmed();
+                        if (!confOut.isEmpty()) {
+                            qWarning() << "[FIX] startAsync failed, checkconf output:" << confOut;
+                            err += "\n\nnamed-checkconf:\n" + confOut;
+                        }
+                    }
                 }
+                qWarning() << "[BindManager] commandFinished: action=" << action
+                           << "success=false err=" << err;
+                emit commandFinished(action, false, err);
             });
     proc->start("systemctl", {action, service});
 }
 
 void BindManager::startAsync() {
     qDebug() << "[BindManager] startAsync: launched";
-    runSystemctlAsync("start", "named");
+    runSystemctlAsync("start", detectServiceName());
 }
 
 void BindManager::stopAsync() {
     qDebug() << "[BindManager] stopAsync: launched";
-    runSystemctlAsync("stop", "named");
+    runSystemctlAsync("stop", detectServiceName());
 }
 
 void BindManager::restartAsync() {
     qDebug() << "[BindManager] restartAsync: launched";
-    runSystemctlAsync("restart", "named");
+    runSystemctlAsync("restart", detectServiceName());
 }
 
 void BindManager::reloadAsync() {
     qDebug() << "[BindManager] reloadAsync: launched";
-    runSystemctlAsync("reload", "named");
+    runSystemctlAsync("reload", detectServiceName());
 }
 
 bool BindManager::isRunning() const {
     qDebug() << "[BindManager] isRunning";
-    for (const QString svc : {"named", "bind9"}) {
-        QProcess proc;
-        proc.start("systemctl", {"is-active", svc});
-        proc.waitForFinished(5000);
-        if (proc.exitCode() == 0) {
-            qDebug() << "[BindManager] isRunning: true (service=" << svc << ")";
-            return true;
-        }
-    }
-    qDebug() << "[BindManager] isRunning: false";
-    return false;
+    const QString svc = detectServiceName();
+    QProcess proc;
+    proc.start("systemctl", {"is-active", svc});
+    proc.waitForFinished(5000);
+    const bool running = (proc.exitCode() == 0);
+    qDebug() << "[BindManager] isRunning:" << running << "(service=" << svc << ")";
+    return running;
 }
 
 QString BindManager::version() const {
@@ -146,7 +198,8 @@ QString BindManager::version() const {
     return ver;
 }
 
-// Добавляет или обновляет блок zone "name" { ... }; в named.conf
+// Добавляет или обновляет блок zone "name" { ... }; в named.conf.
+// После записи валидирует через named-checkconf; при ошибке откатывает файл.
 static bool updateNamedConf(const Zone &zone, const QString &namedConfPath, QString *error) {
     qDebug() << "[BindManager] updateNamedConf zone=" << zone.name << "conf=" << namedConfPath;
     QFile file(namedConfPath);
@@ -156,7 +209,7 @@ static bool updateNamedConf(const Zone &zone, const QString &namedConfPath, QStr
         if (error) *error = err;
         return false;
     }
-    QString content = file.readAll();
+    const QString originalContent = file.readAll();
     file.close();
 
     // Формируем блок зоны
@@ -169,6 +222,7 @@ static bool updateNamedConf(const Zone &zone, const QString &namedConfPath, QStr
     }
 
     // Если зона уже есть — заменяем блок, иначе дописываем
+    QString content = originalContent;
     QRegExp rx(QString("zone\\s+\"%1\"\\s*\\{[^}]*\\};").arg(QRegExp::escape(zone.name)));
     rx.setMinimal(true);
     if (content.contains(rx)) {
@@ -185,9 +239,33 @@ static bool updateNamedConf(const Zone &zone, const QString &namedConfPath, QStr
         if (error) *error = err;
         return false;
     }
-    QTextStream out(&file);
-    out << content;
+    QTextStream streamOut(&file);
+    streamOut << content;
     file.close();
+
+    // Валидируем конфиг; при ошибке откатываем файл
+    QProcess checkProc;
+    checkProc.start("named-checkconf", {namedConfPath});
+    if (!checkProc.waitForStarted(3000) || !checkProc.waitForFinished(10000)) {
+        qWarning() << "[BindManager] updateNamedConf: named-checkconf не запустился, пропускаем валидацию";
+    } else if (checkProc.exitCode() != 0) {
+        const QString checkErr = (checkProc.readAllStandardOutput() +
+                                   checkProc.readAllStandardError()).trimmed();
+        qWarning() << "[BindManager] updateNamedConf: checkconf failed:" << checkErr;
+        if (file.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate)) {
+            QTextStream restore(&file);
+            restore << originalContent;
+            file.close();
+            qWarning() << "[BindManager] updateNamedConf: named.conf восстановлен";
+        } else {
+            qWarning() << "[BindManager] updateNamedConf: не удалось восстановить named.conf!";
+        }
+        if (error) *error = "named-checkconf: " + checkErr;
+        return false;
+    } else {
+        qDebug() << "[BindManager] updateNamedConf: checkconf passed";
+    }
+
     qDebug() << "[BindManager] updateNamedConf: done";
     return true;
 }
@@ -234,8 +312,13 @@ bool BindManager::saveZone(const Zone &zone, const QString &namedConfPath, QStri
         if (rr.type == RecordType::NS)  hasNs  = true;
     }
     if (!hasSoa || !hasNs) {
-        qWarning() << "[BindManager] saveZone: зона" << zone.name
-                   << "не содержит SOA или NS — валидация скорее всего завершится ошибкой";
+        QStringList missing;
+        if (!hasSoa) missing << "SOA";
+        if (!hasNs)  missing << "NS";
+        const QString msg = "Зона «" + zone.name + "» не содержит обязательных записей: " + missing.join(", ");
+        qWarning() << "[FIX] saveZone:" << msg;
+        if (error) *error = msg;
+        return false;
     }
 
     ConfigValidator validator;

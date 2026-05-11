@@ -9,6 +9,7 @@
 #include <QLabel>
 #include <QProgressBar>
 #include "dns/BindManager.h"
+#include "model/EventLogEntry.h"
 #include "model/ServerConfig.h"
 
 QT_BEGIN_NAMESPACE
@@ -52,8 +53,14 @@ private slots:
     // Настройки
     void onSettings();
 
+    // Помощь
+    void onHelp();
+
     // Операции с сервером (async)
     void onServerCommandFinished(const QString &action, bool success, const QString &error);
+
+    // Журнал событий
+    void refreshEventLog();
 
 private:
     // Методы UI
