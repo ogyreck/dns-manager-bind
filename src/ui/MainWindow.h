@@ -53,6 +53,9 @@ private slots:
     // Настройки
     void onSettings();
 
+    // Помощь
+    void onHelp();
+
     // Операции с сервером (async)
     void onServerCommandFinished(const QString &action, bool success, const QString &error);
 
