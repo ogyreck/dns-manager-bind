@@ -6,21 +6,16 @@
 
 Готовые `.deb`-пакеты публикуются в разделе [Releases](../../releases) на GitHub.
 
-### Установите пакет
+### Установка пакета
 
 ```bash
 sudo dpkg -i dns-manager-admin_*.deb
 ```
-
-Пакет устанавливает двоичный файл в `/usr/bin/dns-manager-admin`.  
-Зависимости runtime: `libqt5widgets5 (≥ 5.15)`, `libqt5core5a (≥ 5.15)`, `bind9utils`.
-
-### 3. Запустите приложение
+### Запуск приложения
 
 ```bash
 sudo dns-manager-admin
 ```
-
 
 ## Быстрый старт (для сборки из исходников)
 
