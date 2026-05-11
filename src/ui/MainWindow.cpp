@@ -3,6 +3,7 @@
 #include "ui/ZoneWizard.h"
 #include "ui/RecordDialog.h"
 #include "ui/SettingsDialog.h"
+#include "ui/HelpDialog.h"
 #include "dns/EventLogger.h"
 #include "ui_mainwindow.h"
 
@@ -100,7 +101,8 @@ void MainWindow::setupToolBar(){
     QAction *actionSettings = toolBar->addAction(
         st->standardIcon(QStyle::SP_FileDialogDetailedView), "Настройки");
     toolBar->addSeparator();
-    toolBar->addAction("Помощь");
+    QAction *actionHelp = toolBar->addAction("Помощь");
+    connect(actionHelp, &QAction::triggered, this, &MainWindow::onHelp);
 
     connect(actionStart,  &QAction::triggered, this, &MainWindow::onStartServer);
     connect(actionStop,   &QAction::triggered, this, &MainWindow::onStopServer);
@@ -252,6 +254,12 @@ void MainWindow::onSettings() {
     treeWidget->clear();
     itemServer = nullptr;
     populateTree();
+}
+
+void MainWindow::onHelp() {
+    qDebug() << "[MainWindow] HelpDialog: открываем окно помощи";
+    HelpDialog dlg(this);
+    dlg.exec();
 }
 
 void MainWindow::onServerCommandFinished(const QString &action, bool success, const QString &error) {

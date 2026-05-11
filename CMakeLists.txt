@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.10)
-project(dns-manager-admin VERSION 1.0.0 LANGUAGES CXX)
+project(dns-manager-admin VERSION 0.0.1 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -24,6 +24,8 @@ set(SOURCES
     src/ui/RecordDialog.cpp
     src/ui/SettingsDialog.h
     src/ui/SettingsDialog.cpp
+    src/ui/HelpDialog.h
+    src/ui/HelpDialog.cpp
     src/ui/ZoneWizard.h
     src/ui/ZoneWizard.cpp
     src/parser/NamedConfParser.h
@@ -44,6 +46,10 @@ set(SOURCES
 )
 
 add_executable(dns-manager-admin ${SOURCES})
+
+target_compile_definitions(dns-manager-admin PRIVATE
+    APP_VERSION="${PROJECT_VERSION}"
+)
 
 target_include_directories(dns-manager-admin PRIVATE src)
 
