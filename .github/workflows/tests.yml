@@ -18,6 +18,8 @@ jobs:
   tests:
     name: Build & Test
     runs-on: ubuntu-22.04
+    container:
+      image: debian:buster
 
     steps:
       - uses: actions/checkout@v4
