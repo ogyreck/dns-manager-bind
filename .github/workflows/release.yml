@@ -16,6 +16,8 @@ jobs:
   draft-release:
     name: Build & Draft Release
     runs-on: ubuntu-22.04
+    container:
+      image: debian:buster
 
     steps:
       - uses: actions/checkout@v4
