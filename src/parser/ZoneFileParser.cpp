@@ -91,7 +91,7 @@ QList<ResourceRecord> ZoneFileParser::parse(const QString &filePath) {
     for (const QString &line : lines) {
         // $TTL директива
         if (line.startsWith("$TTL", Qt::CaseInsensitive)) {
-            QStringList parts = line.split(' ', Qt::SkipEmptyParts);
+            QStringList parts = line.split(' ', QString::SkipEmptyParts);
             if (parts.size() >= 2)
                 defaultTtl = parts[1].toUInt();
             continue;
@@ -100,7 +100,7 @@ QList<ResourceRecord> ZoneFileParser::parse(const QString &filePath) {
         if (line.startsWith('$'))
             continue;
 
-        QStringList tokens = line.split(' ', Qt::SkipEmptyParts);
+        QStringList tokens = line.split(' ', QString::SkipEmptyParts);
         if (tokens.isEmpty())
             continue;
 
