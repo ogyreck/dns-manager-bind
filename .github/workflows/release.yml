@@ -38,6 +38,7 @@ jobs:
         run: |
           apt-get update -qq -o Acquire::Check-Valid-Until=false
           apt-get install -y --no-install-recommends \
+            g++ \
             qtbase5-dev cmake ninja-build dpkg-dev \
             libqt5network5 git ca-certificates
 
