@@ -66,7 +66,7 @@ set(CPACK_PACKAGE_VERSION "${PROJECT_VERSION}")
 set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "Графический менеджер DNS BIND9 для Astra Linux")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "ogyreck")
 set(CPACK_DEBIAN_PACKAGE_SECTION "net")
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt5widgets5 (>= 5.15), libqt5core5a (>= 5.15), bind9utils")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libqt5widgets5 (>= 5.11), libqt5core5a (>= 5.11), libqt5network5 (>= 5.11), bind9utils")
 include(CPack)
 
 enable_testing()
