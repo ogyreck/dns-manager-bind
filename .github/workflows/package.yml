@@ -16,23 +16,46 @@ jobs:
   deb:
     name: Build .deb
     runs-on: ubuntu-22.04
-
+    container:
+      image: debian:buster
+      
     steps:
       - uses: actions/checkout@v4
 
+      - name: Extract version
+        id: version
+        run: |
+          VERSION=$(grep -m1 'project(' CMakeLists.txt | grep -oP 'VERSION \K[0-9]+\.[0-9]+\.[0-9]+')
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VERSION}" >> "$GITHUB_OUTPUT"
+
+      - name: Fix Buster repos 
+        run: |
+          echo "deb http://archive.debian.org/debian buster main contrib non-free" > /etc/apt/sources.list
+          echo "deb http://archive.debian.org/debian-security buster/updates main" >> /etc/apt/sources.list
+
       - name: Install dependencies
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends \
-            qtbase5-dev cmake ninja-build dpkg-dev
+          apt-get update -qq -o Acquire::Check-Valid-Until=false
+          apt-get install -y --no-install-recommends \
+            g++ \
+            qtbase5-dev cmake ninja-build dpkg-dev \
+            libqt5network5 git ca-certificates wget
 
       - name: Cache FetchContent dependencies
         uses: actions/cache@v4
         with:
           path: build/_deps
-          key: ${{ runner.os }}-deps-${{ hashFiles('CMakeLists.txt', 'tests/CMakeLists.txt') }}
+          key: debian-buster-deps-${{ hashFiles('CMakeLists.txt', 'tests/CMakeLists.txt') }}
           restore-keys: |
-            ${{ runner.os }}-deps-
+            debian-buster-deps-
+
+      - name: Install CMake 3.20+
+        run: |
+          wget -q https://github.com/Kitware/CMake/releases/download/v3.20.6/cmake-3.20.6-linux-x86_64.sh
+          chmod +x cmake-3.20.6-linux-x86_64.sh
+          ./cmake-3.20.6-linux-x86_64.sh --skip-license --prefix=/usr/local
+          cmake --version
 
       - name: Configure
         run: cmake -B build -DCMAKE_BUILD_TYPE=Release -G Ninja
